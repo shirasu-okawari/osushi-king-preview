@@ -1,0 +1,2355 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>押忍！お寿司王 — CG ビューワ</title>
+<style>
+body { margin: 0; font-family: -apple-system, "Hiragino Sans", sans-serif; background: #1a0d26; color: #fff6d5; overflow: hidden; }
+button { background: #2a1a3d; color: #fff6d5; border: 1px solid #5a3e7a; border-radius: 5px; padding: 5px 10px; font-size: 12px; cursor: pointer; }
+button:hover { background: #3b2857; }
+button:disabled { opacity: .35; cursor: default; }
+/* ── 全体: ツールバー / 作業エリア / ステータスバー の 3 行 ── */
+#app { display: grid; grid-template-rows: auto 1fr auto; height: 100vh; }
+
+/* ── 上部ツールバー ── */
+#toolbar { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; padding: 7px 10px; background: #241433; border-bottom: 1px solid #3a2754; }
+.tb-title { font-size: 13px; font-weight: bold; color: #ffd54a; }
+.tb-spacer { flex: 1; }
+/* セグメンテッドコントロール (連結ボタン・選択をハイライト) */
+.seg { display: inline-flex; }
+.seg button { border-radius: 0; border-right-width: 0; color: #cdb8e6; }
+.seg button:first-child { border-top-left-radius: 6px; border-bottom-left-radius: 6px; }
+.seg button:last-child { border-right-width: 1px; border-top-right-radius: 6px; border-bottom-right-radius: 6px; }
+.seg button.on { background: #4a2f6e; color: #ffd54a; border-color: #ffce2b; font-weight: bold; }
+#mode-switch button { padding: 7px 14px; font-size: 13px; }   /* 大2択 */
+#subtabs button { padding: 6px 11px; }
+/* パンくず (一覧 ▸ 分類 ▸ モデル)。CGモードはセグメントでなくこれ。 */
+#subtabs.crumbs { display: inline-flex; align-items: center; gap: 2px; }
+.crumb { background: none; border: none; color: #b79bd6; padding: 5px 8px; font-size: 13px; border-radius: 5px; }
+.crumb:hover:not(:disabled) { color: #ffd54a; background: #2a1a3d; }
+.crumb.on { color: #ffd54a; font-weight: bold; }
+.crumb:disabled { cursor: default; }
+.crumb-sep { color: #6a5a86; font-size: 11px; }
+.crumb-date { color: #cdb8e6; font-size: 11px; padding: 0 4px; font-variant-numeric: tabular-nums; }
+/* 表示トグル (常時表示・ON は明色で強調) */
+#toggles { display: flex; align-items: center; flex-wrap: wrap; gap: 3px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; background: #2a1a3d; border: 1px solid #5a3e7a; border-radius: 12px; padding: 3px 9px; font-size: 11px; color: #b79bd6; cursor: pointer; }
+.chip input { display: none; }
+.chip:has(input:checked) { background: #ffce2b; border-color: #ffce2b; color: #2a1530; font-weight: bold; }
+.lightrow { display: inline-flex; align-items: center; gap: 5px; color: #b79bd6; font-size: 11px; }
+.lightrow input[type=range] { width: 62px; }
+#view-actions { display: flex; gap: 5px; }
+
+/* ── 作業エリア: 左 / キャンバス / 右 ── */
+#workarea { display: grid; grid-template-columns: 222px 1fr 212px; min-height: 0; }
+#left, #right { background: #241433; overflow-y: auto; min-height: 0; }
+#left { border-right: 1px solid #3a2754; grid-column: 1; }
+#right { border-left: 1px solid #3a2754; grid-column: 3; }
+/* 非表示でも列は維持 (列幅を 0 に畳む)。display:none にするとキャンバスが列1へ繰り上がり幅0になるため不可。 */
+#left[hidden], #right[hidden] { visibility: hidden; }
+#browser, #decorlist-panel, #inspector { padding: 8px 10px; }
+.panel-head { font-size: 12px; color: #ffd54a; font-weight: bold; margin: 0 0 7px; }
+#searchwrap { background: #2a1a3d; border: 1px solid #5a3e7a; border-radius: 6px; padding: 5px 9px; margin-bottom: 3px; }
+#search { width: 100%; background: transparent; border: none; color: #fff6d5; font-size: 12px; outline: none; }
+.cat { color: #b79bd6; font-size: 11px; font-weight: bold; padding: 8px 4px 3px; display: flex; justify-content: space-between; cursor: pointer; user-select: none; }
+.cat.on { color: #ffd54a; }
+.mi { padding: 4px 8px; border-radius: 5px; color: #e6d8f5; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 4px; }
+.mi:hover { background: #332450; }
+.mi.sel { background: #4a2f6e; color: #ffd54a; font-weight: bold; }
+.mi-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mi-date { font-size: 9.5px; color: #8a76ab; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fixtog { opacity: .22; font-size: 11px; padding: 0 1px; }
+.fixtog:hover { opacity: .65; }
+.fixtog.on { opacity: 1; }
+/* 要修正バー (件数 / これだけ表示 / コピー) と 単体の要修正トグル */
+.fixbar { display: flex; align-items: center; gap: 5px; padding: 5px 7px; margin-bottom: 5px; background: #2a1a3d; border: 1px solid #5a3e7a; border-radius: 6px; font-size: 11px; color: #cdb8e6; }
+.fixbar b { color: #ffce2b; }
+.fixbar .fixstat { flex: 1; color: #8fe0a8; font-size: 10px; }
+.minibtn { background: #3a2754; border: 1px solid #5a3e7a; border-radius: 5px; padding: 2px 8px; font-size: 11px; color: #cdb8e6; cursor: pointer; }
+.minibtn.on { background: #ffce2b; border-color: #ffce2b; color: #2a1530; font-weight: bold; }
+.fixbtn { background: rgba(36,20,51,.85); border: 1px solid #5a3e7a; color: #cdb8e6; border-radius: 6px; padding: 4px 9px; font-size: 12px; cursor: pointer; }
+.fixbtn.on { background: #ffce2b; border-color: #ffce2b; color: #2a1530; font-weight: bold; }
+/* CG グッド/バッド評価 (data/cg_feedback.json) */
+.fbbtn { background: rgba(36,20,51,.85); border: 1px solid #5a3e7a; border-radius: 6px; padding: 3px 7px; font-size: 13px; line-height: 1; cursor: pointer; filter: grayscale(1); opacity: .5; }
+.fbbtn:hover { filter: none; opacity: 1; }
+.fbbtn.good.on { background: #1f5a36; border-color: #3fae6f; filter: none; opacity: 1; }
+.fbbtn.bad.on { background: #5a1f2a; border-color: #c2455e; filter: none; opacity: 1; }
+.fbnote { background: #2a1a3d; color: #fff6d5; border: 1px solid #5a3e7a; border-radius: 5px; padding: 2px 6px; font-size: 11px; width: 150px; }
+.fbnote::placeholder { color: #8a76ab; }
+.fbmark { font-size: 10px; padding: 0 1px; opacity: .9; }
+.pathcopy { color: #8fe0a8; cursor: pointer; border-bottom: 1px dotted #5a7a63; }
+.pathcopy:hover { color: #b8f0c8; }
+/* タグ (横断ラベル): サイドバーの絞り込みクラウド + 単体表示のタグチップ */
+.tagbar { display: flex; flex-wrap: wrap; gap: 3px; padding: 5px 7px; margin-bottom: 5px; background: #221634; border: 1px solid #3a2754; border-radius: 6px; }
+.tagchip { background: #3a2754; border: 1px solid #5a3e7a; color: #cdb8e6; border-radius: 10px; padding: 1px 8px; font-size: 10.5px; cursor: pointer; white-space: nowrap; }
+.tagchip:hover { background: #4a3568; }
+.tagchip.on { background: #ffce2b; border-color: #ffce2b; color: #2a1530; font-weight: bold; }
+.tagchip .cnt { opacity: .55; margin-left: 3px; }
+.mtag { background: #2f4a6e; border: 1px solid #4a6e9e; color: #cfe0f5; border-radius: 10px; padding: 1px 7px; font-size: 10.5px; cursor: pointer; white-space: nowrap; }
+.mtag.man { background: #2f5a3e; border-color: #4a8e60; color: #cfe6d5; }
+.mtag .x { cursor: pointer; margin-left: 3px; opacity: .65; }
+.mtag .x:hover { opacity: 1; color: #fff; }
+.taginput { background: #2a1a3d; color: #fff6d5; border: 1px solid #5a3e7a; border-radius: 10px; padding: 1px 8px; font-size: 10.5px; width: 84px; }
+#decorlist-panel select, #inspector select, #inspector input[type=number] { background: #2a1a3d; color: #fff6d5; border: 1px solid #5a3e7a; border-radius: 4px; padding: 3px 5px; font-size: 11px; }
+#inspector input[type=number] { width: 56px; }
+#eadd { flex: 1; }
+#elist { margin: 5px 0; overflow-y: auto; font-size: 12px; }
+.eitem { padding: 4px 7px; border-radius: 4px; cursor: pointer; display: flex; justify-content: space-between; color: #e6d8f5; }
+.eitem:hover { background: #332450; }
+.eitem.sel { background: #4a2f6e; color: #ffd54a; font-weight: bold; }
+.erow { display: flex; gap: 6px; align-items: center; margin: 5px 0; font-size: 11px; color: #cdb8e6; }
+.ehint { color: #9b86bd; font-size: 10.5px; margin: 8px 1px; line-height: 1.6; }
+#edel { width: 100%; margin-top: 8px; background: #3a2030; border-color: #7a3e4a; color: #e6b8c0; }
+.insp-empty { color: #9b86bd; font-size: 11px; padding: 10px 2px; }
+
+/* ── キャンバス / ステータスバー ── */
+#canvas-wrap { position: relative; overflow: hidden; min-width: 0; background: #120a18; grid-column: 2; }
+#cv { display: block; cursor: grab; touch-action: none; image-rendering: pixelated; }
+/* 単体表示の 前/次 矢印 (左右中央)。クリックでスライド遷移。 */
+.navarrow { position: absolute; top: 50%; transform: translateY(-50%); width: 42px; height: 66px; display: none; align-items: center; justify-content: center; font-size: 20px; background: rgba(36,20,51,.55); border: 1px solid #5a3e7a; color: #ffd54a; border-radius: 10px; z-index: 5; cursor: pointer; }
+.navarrow:hover { background: rgba(74,47,110,.9); border-color: #ffce2b; }
+#nav-prev { left: 14px; }
+#nav-next { right: 14px; }
+.navback { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); display: none; padding: 7px 18px; font-size: 13px; background: rgba(36,20,51,.82); border: 1px solid #5a3e7a; color: #ffd54a; border-radius: 18px; z-index: 6; cursor: pointer; }
+.navback:hover { background: rgba(74,47,110,.95); border-color: #ffce2b; }
+/* キャンバス上部オーバーレイ: 左上=文脈ナビ(パンくず/店舗切替) 右上=編集バー */
+#topleft { position: absolute; top: 8px; left: 10px; display: none; align-items: center; flex-wrap: wrap; max-width: 72%; gap: 4px; z-index: 5; }
+#topleft .crumbs, #topleft.crumbs { background: rgba(26,13,38,.66); border: 1px solid #3a2754; border-radius: 7px; padding: 1px 4px; }
+#editbar { position: absolute; top: 8px; right: 10px; display: none; align-items: center; gap: 6px; z-index: 5;
+	background: rgba(26,13,38,.72); border: 1px solid #6a4a9a; border-radius: 9px; padding: 5px 8px; }
+#editbar .ebadge { font-size: 11px; font-weight: bold; color: #ffd54a; padding-right: 2px; }
+#editbar .estat { font-size: 11px; }
+#editbar .estat.unsaved { color: #ffce2b; }
+#editbar .estat.saved { color: #8fe0a8; }
+#editbar button { background: rgba(58,39,84,.9); }
+#editbar .b-edit { background: #3a2e5a; border-color: #8a72c8; color: #ffd54a; font-weight: bold; }
+#editbar .b-save { background: #2e7d46; border-color: #3da05c; color: #dffbe6; font-weight: bold; }
+#editbar .b-discard { background: #3a2030; border-color: #7a3e4a; color: #e6b8c0; }
+#editbar .b-exit { background: rgba(36,20,51,.9); }
+#editbar .esep { width: 1px; height: 18px; background: #5a3e7a; }
+/* 左パネルの並び替え (分類/新着/名前/サイズ)。検索ボックスの下・モデル一覧の上。 */
+#panelsort { margin: 5px 0 2px; }
+#panelsort .ps-label { display: block; font-size: 10.5px; color: #9b86bd; margin-bottom: 3px; }
+#panelsort .seg { display: flex; width: 100%; }
+#panelsort .seg button { flex: 1; padding: 4px 0; font-size: 11px; }
+/* 左ツリー: 開閉トグル (▸/▾) + グループ/モデルの段差 */
+.tw { display: inline-block; width: 14px; text-align: center; color: #9b86bd; cursor: pointer; }
+.tw:hover { color: #ffd54a; }
+.cat.grp { padding-left: 12px; }
+.mi.sub { padding-left: 26px; }
+#statusbar { border-top: 1px solid #3a2754; padding: 6px 12px; color: #9b86bd; font-size: 11px; display: flex; justify-content: space-between; gap: 10px; }
+</style>
+</head>
+<body>
+<div id="app">
+
+<header id="toolbar">
+<span class="tb-title">押忍CG</span>
+<div id="mode-switch" class="seg"><button data-ws="browse">🖼 CG</button><button data-ws="scene">🏯 店内</button></div>
+<div class="tb-spacer"></div>
+<div id="toggles">
+<label class="chip"><input type="checkbox" id="auto" checked>自動回転</label>
+<label class="chip"><input type="checkbox" id="grid">グリッド</label>
+<label class="chip"><input type="checkbox" id="wire">ワイヤー</label>
+<label class="chip"><input type="checkbox" id="dims">寸法</label>
+<label class="chip"><input type="checkbox" id="plate">皿</label>
+<label class="chip"><input type="checkbox" id="bgm">♪BGM</label>
+<label class="chip" id="chip-watch"><input type="checkbox" id="watch" checked>監視</label>
+<span class="lightrow">光<input type="range" id="laz" min="-180" max="180" value="-37"><input type="range" id="lel" min="5" max="85" value="43"></span>
+</div>
+<div id="view-actions"><button id="reset" title="視点リセット">⌖</button><button id="reload" title="再読込">↻</button></div>
+</header>
+
+<div id="workarea">
+<aside id="left">
+<div id="browser">
+<div id="searchwrap"><input id="search" placeholder="🔍 モデルを検索…" autocomplete="off"></div>
+<div id="panelsort"></div>
+<div id="modellist"></div>
+</div>
+<div id="decorlist-panel" style="display:none">
+<div class="panel-head">装飾を配置</div>
+<div class="erow"><select id="eadd"></select><button id="eaddbtn">＋追加</button></div>
+<div id="elist"></div>
+</div>
+</aside>
+
+<main id="canvas-wrap"><canvas id="cv"></canvas>
+<div id="topleft"></div>
+<div id="editbar"></div>
+<button id="nav-prev" class="navarrow" title="前のモデル (←)">◀</button>
+<button id="nav-next" class="navarrow" title="次のモデル (→)">▶</button>
+<button id="nav-back" class="navback" title="一覧に戻る">↩ 一覧へ</button>
+</main>
+
+<aside id="right">
+<div id="inspector">
+<div class="panel-head">選択中のオブジェクト</div>
+<div id="efields" style="display:none">
+<div class="erow">X<input type="number" id="ex" step="0.05">Z<input type="number" id="ez" step="0.05"></div>
+<div class="erow">高さY<input type="number" id="ey" step="0.05">回転°<input type="number" id="erot" step="5"></div>
+<div class="erow">サイズ<input type="number" id="esize" step="0.02"><label style="display:flex;gap:3px;align-items:center;cursor:pointer;"><input type="checkbox" id="ehang" style="display:inline;width:auto;">壁に吊り下げ</label></div>
+<button id="edel">🗑 この装飾を削除</button>
+<div class="ehint">移動: 3D の矢印を掴んでドラッグ（<span style="color:#e9706b">X赤</span> / <span style="color:#6fd08f">Y緑</span> / <span style="color:#7e9bff">Z青</span>）<br>矢印キーで微調整 / Shift+矢印で高さ<br>保存後ゲーム再起動で反映。</div>
+</div>
+<div id="insp-empty" class="insp-empty">オブジェクトをクリックで選択</div>
+</div>
+</aside>
+</div>
+
+<footer id="statusbar"><span id="stats"></span><span>ドラッグ:回転 / ホイール:ズーム / ダブルクリック:リセット</span></footer>
+</div>
+<script>
+// ソフトウェア Z バッファレンダラ。
+// painter's algorithm (面ソート) はコプレーナ面・交差・長い面で必ず破綻パターンが
+// 出るため、ピクセル単位の深度テストで描画順問題を原理的に排除する。
+// 解像度は内部 RES_W に固定し、canvas へ拡大 (pixelated = picoCAD 風)。
+//
+// シーンはインスタンス ({モデル番号, 平行移動}) のリストとして組み立てる:
+//   single モード = 選択モデル 1 つ (+ 皿)、grid モード = 全モデルを敷き詰め。
+
+let DATA = null, bboxes = [], texes = [];
+// 静的公開 (GitHub Pages) 用フラグ。build_static.py が true に置換する。
+// true = 閲覧専用: 装飾エディタ無効 + 監視ポーリング無効 + 初期表示を店内に。
+const VIEW_ONLY = true;  // BUILD:VIEW_ONLY
+let cur = 0, viewMode = VIEW_ONLY ? "scene" : "grid";   // 開発版の初期表示は CG 一覧
+// 装飾配置エディタの状態 (decor_layout.json をゲームと共有)
+// 店舗フォーム別に独立したレイアウトを持つ: DECOR_ALL.loop / DECOR_ALL.serp。
+// DECOR は現フォーム (sceneForm) の配列への参照で、描画・編集・保存はこれを使う。
+let DECOR_ALL = { loop: [], serp: [] };
+let DECOR = DECOR_ALL.loop, selDecor = -1, editMode = false, gizmoAxis = null, decorLoaded = false;
+// 店内編集は「ビューワ→✏️編集ON→✓完了」。editMode は派生 (scene && !VIEW_ONLY && editOn)。
+let editOn = false;
+let lastBrowseMode = VIEW_ONLY ? "single" : "grid";   // CGビューワの直前サブ (grid/group/single)
+let groupCat = "";                                       // 分類表示でフォーカス中のカテゴリ
+let sortMode = "group";   // 左パネル/◀▶の並び順: group(分類ツリー) / recent(新着) / name(50音) / size(大→小)
+let undoStack = [], redoStack = [], _fieldSnap = null, _lastNudge = 0;  // 装飾編集の履歴
+// CGビューワのドリルダウン (一覧→分類→単体): ホバーで該当を強調 / 単体は ◀▶ でスライド遷移。
+let hoverGroup = null, hoverModelMi = -1, gridCells = [], lastProj = null, slide = null;
+let _groupFrame = { cy: 0, cz: 0, radius: 4 };   // 分類表示で中央グループタイルのカメラフレーミング
+const SLIDE_DUR = 0.26;  // カルーセル遷移の秒数
+const CAROUSEL_R = 1.0, CAROUSEL_GAP = 2.9;  // 単体カルーセル: 各CGの表示半径 / スロット間隔(隣が端で薄く見える)
+let _downXY = null, _tapMi = -1, _movedFar = false;  // タップ(ドリルダウン) vs ドラッグ(回転) 判定
+let openCats = new Set(), allOpen = true;            // 左ツリーの開閉状態 (すべて / 各グループ)
+let dirty = false, exitConfirm = false;              // 装飾編集: 未保存フラグ / 終了確認中
+let fixSet = new Set(), fixFilter = false, fixLoaded = false;  // 要修正チェック (data/fixlist.json)
+let fbGood = new Map(), fbBad = new Map(), fbLoaded = false;   // CG グッド/バッド評価 (data/cg_feedback.json、key→任意メモ)
+let tagMan = new Map(), tagLoaded = false, tagFilter = null;   // 手動タグ (data/cg_tags.json、key→[tag]) / 自動は m.tags / tagFilter=絞り込み中のタグ
+let yaw = VIEW_ONLY ? 0.0 : 0.65, pitch = VIEW_ONLY ? 0.45 : 0.42, zoom = 1, dragging = false, lastX = 0, lastY = 0;
+let spin = 0, spinX = 0;      // 単体/分類で「対象だけ」を自転させる角度 (横=spin / 縦=spinX、カメラ固定・隣静止)
+let _singleFloorY = 0;        // 単体表示の床 y (シーン下端=グリッド底面)。前後ナビ三角をこの高さに接地
+let _arrowWorld = null;       // 前後ナビ矢印のワールド位置+アクション (クリック判定用)
+let lastJson = "";
+
+const RES_W = 720;
+const BG = (36) | (20 << 8) | (51 << 16) | (255 << 24);  // #241433 (ABGR)
+const COL_WIRE = (24) | (12 << 8) | (36 << 16) | (255 << 24);
+const COL_GRID_MINOR = (74) | (53 << 8) | (102 << 16) | (255 << 24);
+const COL_GRID_MAJOR = (107) | (77 << 8) | (143 << 16) | (255 << 24);
+const COL_AXIS_X = (217) | (83 << 8) | (79 << 16) | (255 << 24);
+const COL_AXIS_Y = (79) | (174 << 8) | (111 << 16) | (255 << 24);
+const COL_AXIS_Z = (91) | (127 << 8) | (217 << 16) | (255 << 24);
+const COL_BBOX = (255) | (206 << 8) | (43 << 16) | (255 << 24);
+const COL_SEL = (90) | (230 << 8) | (255 << 16) | (255 << 24);  // 選択強調 (明るいシアン)
+
+// ゲーム内配置: 皿とネタは同倍率なので、皿上面 (raw y=0) はシャリ底 (y=-0.5) に接する
+const PLATE_OFFSET_Y = -0.5;
+
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+const stats = document.getElementById("stats");
+const collapsedCats = new Set();  // 折りたたみ中のカテゴリ名
+const chk = id => document.getElementById(id);
+
+let img = null, px32 = null, zbuf = null, resH = 0;
+
+async function load(keepCur) {
+	if (!decorLoaded) await loadDecor();  // 装飾配置は初回のみ取得 (編集中の上書きを避ける)
+	if (!fixLoaded && !VIEW_ONLY) await loadFixlist();  // 要修正チェック (開発版のみ)
+	if (!fbLoaded && !VIEW_ONLY) await loadFeedback();  // グッド/バッド評価 (開発版のみ)
+	if (!tagLoaded) await loadTags();                   // 手動タグ (公開版でも閲覧・絞り込みに使う)
+	try {
+		const res = await fetch("models.json?t=" + Date.now());
+		const text = await res.text();
+		if (text === lastJson) return;
+		lastJson = text;
+		DATA = JSON.parse(text);
+		bboxes = DATA.models.map(m => {
+			const lo = [9e9, 9e9, 9e9], hi = [-9e9, -9e9, -9e9];
+			for (const v of m.verts) for (let i = 0; i < 3; i++) {
+				lo[i] = Math.min(lo[i], v[i]); hi[i] = Math.max(hi[i], v[i]);
+			}
+			return { lo, hi };
+		});
+		loadTextures();
+		if (!keepCur || cur >= DATA.models.length) cur = 0;
+		refreshUI();
+	} catch (e) {
+		stats.textContent = "models.json 読み込み失敗: " + e.message;
+	}
+}
+
+// base64 埋め込み PNG をデコードしてピクセル配列 (ABGR Uint32) にする
+function loadTextures() {
+	texes = new Array(DATA.models.length).fill(null);
+	DATA.models.forEach((m, i) => {
+		if (!m.tex) return;
+		const im = new Image();
+		im.onload = () => {
+			const c = document.createElement("canvas");
+			c.width = im.width; c.height = im.height;
+			const cc = c.getContext("2d");
+			cc.drawImage(im, 0, 0);
+			const d = cc.getImageData(0, 0, im.width, im.height);
+			texes[i] = { px: new Uint32Array(d.data.buffer), w: im.width, h: im.height };
+		};
+		im.src = m.tex;
+	});
+}
+
+// 分類は models.json の grp (export_models_json.py が付与、ざっくり8グループ・定位置1つ)。
+// 細かい区別はタグ (m.tags + 手動 data/cg_tags.json) で行う。grouping/並び/塊配置の基準。
+const GROUP_ORDER = ["寿司", "スイーツ・一品", "キャラ", "食器・厨房", "店舗什器・看板", "家具・家電", "和・縁起物", "店外・街"];
+const MODEL_GROUPS = GROUP_ORDER.map(name => [name, m => m.grp === name]);
+
+// モデル番号 → 分類名 (MODEL_GROUPS の最初に当たったもの)。
+function catOf(mi) {
+	const m = DATA.models[mi];
+	const g = MODEL_GROUPS.find(x => x[1](m));
+	return g ? g[0] : "";
+}
+// 閲覧で前後に巡れるモデル (背景以外) の番号リスト。
+function browsableIds() { return DATA.models.map((m, i) => i).filter(i => DATA.models[i].cat !== "bg"); }
+// git 追加日 (models.json の added, ISO)。新着並び替え + 日付表示の基準。
+// added が無い (未追跡で生成しただけ) モデルは最新扱い (Infinity)。
+function addedMs(i) { const a = DATA.models[i].added; return a ? Date.parse(a) : Infinity; }
+function addedDateStr(i) { const a = DATA.models[i].added; return a ? a.slice(0, 10) : "新規"; }
+// 左パネル/◀▶ ナビの並び順 (sortMode 連動)。
+//   group=グループ順→グループ内 DATA 順 / recent=git追加が新しい順 / name=50音 / size=実寸(rs)大→小。
+function orderedIds() {
+	if (sortMode === "group") {
+		const out = [], seen = new Set();
+		for (const [, test] of MODEL_GROUPS)
+			for (let i = 0; i < DATA.models.length; i++)
+				if (!seen.has(i) && DATA.models[i].cat !== "bg" && test(DATA.models[i])) { out.push(i); seen.add(i); }
+		return out;
+	}
+	const ids = browsableIds();
+	if (sortMode === "name") return ids.sort((a, b) => DATA.models[a].name.localeCompare(DATA.models[b].name, "ja"));
+	if (sortMode === "recent") return ids.sort((a, b) => addedMs(b) - addedMs(a) || b - a);   // git追加日が新しい順 (タイは登場順)
+	return ids.sort((a, b) => (DATA.models[b].rs || 30) - (DATA.models[a].rs || 30));   // size: 実寸 大→小
+}
+// 左パネルのカレント行 (.mi.sel) が見えるよう、はみ出していればスクロールする。
+function scrollCurrentIntoView() {
+	const el = document.querySelector("#modellist .mi.sel");
+	if (el) el.scrollIntoView({ block: "nearest" });
+}
+
+const show = (id, v) => { const e = chk(id); if (e) e.style.display = v ? "" : "none"; };
+
+// 左/右ペインの表示と、それに合わせた grid 列幅 (非表示は 0 に畳む) を更新。
+function layoutPanes() {
+	const wa = chk("workarea"); if (!wa) return;
+	const L = chk("left") && !chk("left").hidden ? "222px" : "0";
+	const R = chk("right") && !chk("right").hidden ? "212px" : "0";
+	wa.style.gridTemplateColumns = L + " 1fr " + R;
+}
+
+// UI 全体を現在の状態 (CG閲覧 / 店内ビューワ / 店内編集) に合わせて再構築する。
+function refreshUI() {
+	if (!DATA) return;
+	const scene = viewMode === "scene";
+	editMode = scene && !VIEW_ONLY && editOn;   // 編集UIが出るのは「店内＋編集ON」のときだけ
+	// 左ペイン: 閲覧=モデル一覧 / 店内編集=装飾リスト
+	show("browser", !scene);
+	show("decorlist-panel", editMode);
+	chk("left").hidden = !(!scene || editMode);  // VIEW_ONLY 店内ビューワでは左ペインごと畳む
+	chk("right").hidden = !editMode;             // 右インスペクタは店内編集のみ
+	layoutPanes();
+	if (editMode) { populateAddOptions(); refreshDecorList(); fillFields(); }
+	else if (!scene) buildModelList();
+	// 単体は ◀▶ 矢印を廃止し、3D の黄色矢印で前/次へ移動する。
+	chk("nav-prev").style.display = "none";
+	chk("nav-next").style.display = "none";
+	// 戻る (一覧へ) は単体・分類で表示。
+	chk("nav-back").style.display = (!scene && (viewMode === "single" || viewMode === "group")) ? "block" : "none";
+	updateModeUI();
+	updateStats();
+}
+
+// ヘッダーのモード強調 + キャンバス上部オーバーレイ (左=ナビ / 右=編集バー)。
+function updateModeUI() {
+	const scene = viewMode === "scene";
+	document.querySelectorAll("#mode-switch button").forEach(b =>
+		b.classList.toggle("on", b.dataset.ws === (scene ? "scene" : "browse")));
+	buildTopLeft();
+	buildEditBar();
+}
+
+// 左パネルの並び替えセグメント (検索の下)。リスト並び順 + ◀▶ナビ順を切り替える。
+// 分類=グループツリー / 新着=追加が新しい順 / 名前=50音 / サイズ=大→小 (新着以外はフラット)。
+function buildPanelSort() {
+	const host = chk("panelsort"); if (!host) return;
+	host.innerHTML = "";
+	const lab = document.createElement("span"); lab.className = "ps-label"; lab.textContent = "並び替え"; host.appendChild(lab);
+	const seg = document.createElement("div"); seg.className = "seg";
+	const mk = (txt, m) => { const b = document.createElement("button"); if (sortMode === m) b.className = "on"; b.textContent = txt; b.onclick = () => setSortMode(m); seg.appendChild(b); };
+	mk("分類", "group"); mk("新着", "recent"); mk("名前", "name"); mk("サイズ", "size");
+	host.appendChild(seg);
+}
+// 並び替え変更: フラット並びでは分類フォーカス(group view)が成立しないので一覧へ戻す。
+function setSortMode(m) {
+	sortMode = m;
+	if (m !== "group" && viewMode === "group") { viewMode = "grid"; lastBrowseMode = "grid"; }
+	refreshUI();
+}
+
+function updateUndoButtons() {
+	const u = chk("btn-undo"), r = chk("btn-redo");
+	if (u) u.disabled = undoStack.length === 0;
+	if (r) r.disabled = redoStack.length === 0;
+}
+
+// キャンバス左上 (#topleft): CG=パンくず (一覧▸分類▸モデル) / 店内=店舗セグメント (通常/大型)。
+function buildTopLeft() {
+	const host = chk("topleft"); if (!host) return;
+	host.innerHTML = ""; host.className = "";
+	if (viewMode === "scene") {
+		host.style.display = "flex";
+		const seg = document.createElement("div"); seg.className = "seg";
+		const mk = (txt, on, f) => { const b = document.createElement("button"); if (on) b.className = "on"; b.dataset.form = f; b.textContent = txt; b.onclick = () => setForm(f); seg.appendChild(b); };
+		mk("🏪 通常店", sceneForm === "loop", "loop");
+		mk("🏯 大型店", sceneForm === "serp", "serp");
+		host.appendChild(seg);
+	} else if (viewMode === "grid" || viewMode === "group" || viewMode === "single") {
+		host.style.display = "flex"; host.className = "crumbs";
+		const crumb = (txt, active, fn) => { const b = document.createElement("button"); b.className = "crumb" + (active ? " on" : ""); b.textContent = txt; if (fn && !active) b.onclick = fn; else b.disabled = active; host.appendChild(b); };
+		const sep = () => { const s = document.createElement("span"); s.className = "crumb-sep"; s.textContent = "▸"; host.appendChild(s); };
+		crumb("一覧", viewMode === "grid", goGrid);
+		if (viewMode === "group" || viewMode === "single") { sep(); crumb(groupCat || "—", viewMode === "group", () => goGroup(groupCat)); }
+		if (viewMode === "single") {
+			sep(); crumb(DATA.models[cur] ? DATA.models[cur].name : "—", true, null);
+			const dsp = document.createElement("span"); dsp.className = "crumb-date"; dsp.textContent = "🗓 " + addedDateStr(cur); host.appendChild(dsp);  // 追加日
+			if (!VIEW_ONLY) {                                   // 🔧 要修正トグル (開発版のみ)
+				const key = fixKeyOf(cur), on = fixSet.has(key);
+				const fb = document.createElement("button"); fb.className = "fixbtn" + (on ? " on" : "");
+				fb.textContent = on ? "🔧 要修正中" : "🔧 要修正にする"; fb.onclick = () => toggleFix(key);
+				host.appendChild(fb);
+				// 👍/👎 グッドバッド評価 + 任意の理由メモ (開発版のみ)
+				const verdict = fbVerdictOf(key);
+				const gb = document.createElement("button"); gb.className = "fbbtn good" + (verdict === "good" ? " on" : "");
+				gb.textContent = "👍"; gb.title = "グッド"; gb.onclick = () => setFb(key, "good"); host.appendChild(gb);
+				const bb = document.createElement("button"); bb.className = "fbbtn bad" + (verdict === "bad" ? " on" : "");
+				bb.textContent = "👎"; bb.title = "バッド"; bb.onclick = () => setFb(key, "bad"); host.appendChild(bb);
+				if (verdict) {                                  // 評価済みのときだけ理由メモ欄を出す
+					const note = document.createElement("input"); note.className = "fbnote"; note.type = "text";
+					note.placeholder = "理由(任意)"; note.value = fbNoteOf(key);
+					note.onchange = () => setFbNote(key, note.value.trim());
+					note.onkeydown = e => { e.stopPropagation(); if (e.key === "Enter") note.blur(); };  // ◀▶/ショートカットに食わせない
+					host.appendChild(note);
+				}
+			}
+			// タグ (表示は常時、編集は開発版のみ)。クリックでそのタグ絞り込み。手動タグは × で外せる。
+			const ekey = fixKeyOf(cur), autoT = autoTagsOf(cur);
+			for (const t of effTags(cur)) {
+				const man = !autoT.includes(t);
+				const c = document.createElement("span"); c.className = "mtag" + (man ? " man" : "");
+				c.appendChild(document.createTextNode(t)); c.title = "クリックでこのタグで絞り込み";
+				c.onclick = () => setTagFilter(t);
+				if (man && !VIEW_ONLY) { const x = document.createElement("span"); x.className = "x"; x.textContent = "×"; x.title = "タグを外す"; x.onclick = e => { e.stopPropagation(); removeTag(ekey, t); }; c.appendChild(x); }
+				host.appendChild(c);
+			}
+			if (!VIEW_ONLY) {                                   // タグ追加 (開発版のみ、既存タグを補完候補に)
+				const inp = document.createElement("input"); inp.className = "taginput"; inp.placeholder = "＋タグ"; inp.setAttribute("list", "taglist");
+				inp.onkeydown = e => { e.stopPropagation(); if (e.key === "Enter") { addTag(ekey, inp.value); inp.value = ""; } };
+				host.appendChild(inp);
+				const dl = document.createElement("datalist"); dl.id = "taglist";
+				for (const [t] of allTagsWithCounts()) { const o = document.createElement("option"); o.value = t; dl.appendChild(o); }
+				host.appendChild(dl);
+			}
+		}
+	} else {
+		host.style.display = "none";
+	}
+}
+
+// キャンバス右上 (#editbar): 店内ビューワ=「配置を編集」/ 編集中=編集バー / 終了確認=保存・破棄。
+function buildEditBar() {
+	const host = chk("editbar"); if (!host) return;
+	host.innerHTML = "";
+	if (viewMode !== "scene" || VIEW_ONLY) { host.style.display = "none"; return; }
+	host.style.display = "flex";
+	const btn = (txt, cls, fn, dis) => { const b = document.createElement("button"); if (cls) b.className = cls; b.textContent = txt; b.onclick = fn; if (dis) b.disabled = true; host.appendChild(b); return b; };
+	const sep = () => { const s = document.createElement("span"); s.className = "esep"; host.appendChild(s); };
+	const badge = txt => { const s = document.createElement("span"); s.className = "ebadge"; s.textContent = txt; host.appendChild(s); };
+	if (!editOn) { btn("✏️ 配置を編集", "b-edit", startEdit); return; }      // ビューワ: 入口だけ
+	if (exitConfirm) {                                                      // 終了確認 (未保存あり)
+		badge("未保存の変更があります");
+		btn("💾 保存して終了", "b-save", exitSave);
+		btn("🗑 破棄して終了", "b-discard", exitDiscard);
+		btn("← 編集に戻る", "b-exit", exitCancel);
+		return;
+	}
+	badge("🛠 配置編集中");                                                 // 通常の編集バー
+	const u = btn("↶", "", undo, undoStack.length === 0); u.id = "btn-undo"; u.title = "元に戻す (⌘Z)";
+	const r = btn("↷", "", redo, redoStack.length === 0); r.id = "btn-redo"; r.title = "やり直し (⇧⌘Z)";
+	sep();
+	btn("💾 ゲームに保存", "b-save", saveDecor);
+	const st = document.createElement("span"); st.className = "estat " + (dirty ? "unsaved" : "saved"); st.textContent = dirty ? "● 未保存" : "✓ 保存済み"; host.appendChild(st);
+	sep();
+	btn("✕ 編集を終了", "b-exit", requestEndEdit);
+}
+
+// 大2択: CG閲覧 ⇄ 店内 (店内は必ずビューワから=編集OFF)。
+function setWorkspace(ws) {
+	if (ws === "scene") {
+		viewMode = "scene"; editOn = false;
+		setView(0.0, sceneForm === "serp" ? 0.8 : 0.45, 1.0);
+		if (chk("auto")) chk("auto").checked = false;   // 入場時は自動回転OFF (静止した全景)
+	} else {
+		viewMode = lastBrowseMode || "grid";
+		if (viewMode === "group" && !groupCat) groupCat = MODEL_GROUPS[0][0];
+		setView(0.65, 0.42, 1.0);
+	}
+	hoverGroup = null; hoverModelMi = -1; slide = null;
+	refreshUI();
+}
+// sceneForm に合わせて DECOR を現フォームの配列に向ける (編集/描画/保存はこの配列)。
+function useFormDecor() { DECOR = DECOR_ALL[sceneForm] || (DECOR_ALL[sceneForm] = []); }
+function setForm(f) {
+	if (f !== sceneForm) {   // 店舗を切り替えたら装飾配列も切替え、選択/undo をリセット
+		sceneForm = f; useFormDecor();
+		selDecor = -1; gizmoAxis = null; undoStack = []; redoStack = []; updateUndoButtons();
+	}
+	viewMode = "scene";
+	setView(0.0, f === "serp" ? 0.8 : 0.45, 1.0); refreshUI();
+}
+
+// ── CG閲覧のドリルダウン (一覧 → 分類 → 単体) ──
+function goGrid() { viewMode = "grid"; lastBrowseMode = "grid"; hoverGroup = null; hoverModelMi = -1; slide = null; setView(0.65, 0.42, 1.0); refreshUI(); }
+function goGroup(cat) { groupCat = cat; openCats.add(cat); allOpen = true; viewMode = "group"; lastBrowseMode = "group"; hoverGroup = null; hoverModelMi = -1; slide = null; spin = 0; spinX = 0; setView(0.65, 0.42, 1.0); refreshUI(); }
+function goSingle(mi) { cur = mi; groupCat = catOf(mi); openCats.add(groupCat); allOpen = true; viewMode = "single"; lastBrowseMode = "single"; hoverGroup = null; hoverModelMi = -1; slide = null; spin = 0; spinX = 0; setView(0.65, 0.42, 1.0); refreshUI(); scrollCurrentIntoView(); }
+
+// 単体カルーセルで前/次モデルへ遷移 (全モデル通し)。dir=-1:前 / +1:次。
+function startSlide(dir) {
+	if (slide || viewMode !== "single" || !DATA) return;
+	const ids = orderedIds(); const idx = ids.indexOf(cur); if (idx < 0) return;
+	slide = { dir, t: 0, toMi: ids[((idx + dir) % ids.length + ids.length) % ids.length] };
+}
+// スライドでモデルが切り替わった後の更新 (パンくず・統計・サイドバー選択)。
+function afterSingleChange() { groupCat = catOf(cur); openCats.add(groupCat); buildTopLeft(); updateStats(); buildModelList(); scrollCurrentIntoView(); }
+
+// グリッド/分類でカーソル直下のモデル番号 (gridCells を draw と同じ投影で当てる)。なければ -1。
+function gridPick(cx, cy) {
+	if (!lastProj || !gridCells.length) return -1;
+	const [ix, iy] = clientToInternal(cx, cy);
+	let best = -1, bestD = 95 * 95;
+	for (const cell of gridCells) {
+		const p = lastProj(cell.c[0], cell.c[1], cell.c[2]);
+		const dd = (p[0] - ix) ** 2 + (p[1] - iy) ** 2;
+		if (dd < bestD) { bestD = dd; best = cell.mi; }
+	}
+	return best;
+}
+
+// 店内: ビューワ ⇄ 編集 の出入り。終了は「未保存なら必ず 保存/破棄 を選ぶ」安心フロー。
+function startEdit() { if (viewMode !== "scene" || VIEW_ONLY) return; editOn = true; exitConfirm = false; refreshUI(); }
+function requestEndEdit() { if (dirty) { exitConfirm = true; buildEditBar(); } else doEndEdit(); }
+function doEndEdit() { editOn = false; exitConfirm = false; selDecor = -1; gizmoAxis = null; refreshUI(); }
+async function exitSave() { if (await saveDecor()) doEndEdit(); }                       // 保存して終了
+async function exitDiscard() { await loadDecor(); selDecor = -1; refreshDecorList(); fillFields(); dirty = false; doEndEdit(); }  // 破棄して終了 (保存済みへ)
+function exitCancel() { exitConfirm = false; buildEditBar(); }                          // 編集に戻る
+// 編集バーの状態テキスト (● 未保存 / ✓ 保存済み / メッセージ) を更新。
+function setEditStatus(txt, cls) { const s = document.querySelector("#editbar .estat"); if (s) { s.className = "estat " + cls; s.textContent = txt; } }
+
+// ── 装飾編集の undo/redo (DECOR のスナップショット履歴) ──
+function snapshotDecor() { return JSON.parse(JSON.stringify(DECOR)); }
+function pushHistory() { undoStack.push(snapshotDecor()); if (undoStack.length > 100) undoStack.shift(); redoStack.length = 0; updateUndoButtons(); }
+function applyHistory(from, to) {
+	if (!from.length) return;
+	to.push(snapshotDecor());
+	DECOR = from.pop(); DECOR_ALL[sceneForm] = DECOR;   // 現フォームの配列を差し替え
+	selDecor = Math.min(selDecor, DECOR.length - 1);
+	refreshDecorList(); fillFields(); markDirty(); updateUndoButtons();
+}
+function undo() { applyHistory(undoStack, redoStack); }
+function redo() { applyHistory(redoStack, undoStack); }
+
+// 左サイドバー (CG閲覧): すべて ▸ 各グループ(開閉トグル) ▸ 単体CG名 のツリー。
+// ・トグル(▸/▾)で開閉  ・グループ名クリックでその分類だけ3D表示  ・モデル名クリックで単体
+// ・グループ行ホバーで3Dの該当グループを強調  ・検索中はフラット結果
+function modelRow(host, i, sub) {
+	const key = fixKeyOf(i), flagged = fixSet.has(key);
+	const it = document.createElement("div");
+	it.className = "mi" + (sub ? " sub" : "") + (viewMode === "single" && i === cur ? " sel" : "");
+	const tog = VIEW_ONLY ? "" : '<span class="fixtog' + (flagged ? " on" : "") + '" title="要修正チェック">🔧</span>';  // 保存できない公開版では出さない
+	const date = (sortMode === "recent") ? '<span class="mi-date">' + addedDateStr(i) + '</span>' : "";  // 新着並びは追加日を表示
+	const verdict = VIEW_ONLY ? null : fbVerdictOf(key);  // グッド/バッドの閲覧用マーク (タグ付けは単体表示で)
+	const fbm = verdict ? '<span class="fbmark ' + verdict + '" title="' + (fbNoteOf(key) || (verdict === "good" ? "グッド" : "バッド")) + '">' + (verdict === "good" ? "👍" : "👎") + '</span>' : "";
+	it.innerHTML = '<span class="mi-name">' + DATA.models[i].name + '</span>' + date + fbm + tog;
+	it.querySelector(".mi-name").onclick = () => goSingle(i);
+	const ft = it.querySelector(".fixtog"); if (ft) ft.onclick = e => { e.stopPropagation(); toggleFix(key); };
+	it.onmouseenter = () => { if (viewMode === "group") hoverModelMi = i; };
+	it.onmouseleave = () => { if (hoverModelMi === i) hoverModelMi = -1; };
+	host.appendChild(it);
+}
+function buildModelList() {
+	buildPanelSort();   // 検索下の並び替えセグメント (分類/新着/名前/サイズ)
+	const host = document.getElementById("modellist"); if (!host) return; host.innerHTML = "";
+	// 要修正バー (件数 / これだけ表示 / コピー)。開発版のみ・チェックが1件以上か絞込中に表示。
+	if (!VIEW_ONLY && (fixSet.size > 0 || fixFilter)) {
+		const bar = document.createElement("div"); bar.className = "fixbar";
+		const only = document.createElement("button"); only.className = "minibtn" + (fixFilter ? " on" : ""); only.textContent = fixFilter ? "全部" : "これだけ";
+		only.onclick = () => { fixFilter = !fixFilter; if (fixFilter) goGrid(); else refreshUI(); };
+		const cp = document.createElement("button"); cp.className = "minibtn"; cp.textContent = "コピー"; cp.onclick = copyFixlist;
+		bar.innerHTML = '<span>🔧 要修正 <b>' + fixSet.size + '</b>件</span><span class="fixstat"></span>';
+		bar.appendChild(only); bar.appendChild(cp);
+		host.appendChild(bar);
+	}
+	// グッド/バッドバー (件数 / コピー)。開発版のみ・1件以上のとき。
+	if (!VIEW_ONLY && (fbGood.size + fbBad.size) > 0) {
+		const bar = document.createElement("div"); bar.className = "fixbar fbbar";
+		bar.innerHTML = '<span>👍 <b>' + fbGood.size + '</b> / 👎 <b>' + fbBad.size + '</b></span><span class="fixstat fbstat"></span>';
+		const cp = document.createElement("button"); cp.className = "minibtn"; cp.textContent = "コピー"; cp.onclick = copyFeedback;
+		bar.appendChild(cp);
+		host.appendChild(bar);
+	}
+	// タグ絞り込みクラウド (全タグをチップ表示、クリックで絞り込み)。タグがあるとき常時表示。
+	const tagsAll = allTagsWithCounts();
+	if (tagsAll.length) {
+		const bar = document.createElement("div"); bar.className = "tagbar";
+		for (const [t, c] of tagsAll) {
+			const chip = document.createElement("span"); chip.className = "tagchip" + (tagFilter === t ? " on" : "");
+			chip.innerHTML = t + '<span class="cnt">' + c + '</span>'; chip.title = "クリックでこのタグで絞り込み";
+			chip.onclick = () => setTagFilter(t);
+			bar.appendChild(chip);
+		}
+		host.appendChild(bar);
+	}
+	const q = (document.getElementById("search").value || "").trim().toLowerCase();
+	if (q) {   // 検索中はフラットな結果一覧 (現在の並び順・クリックで単体)
+		orderedIds()
+			.filter(i => DATA.models[i].name.toLowerCase().includes(q))
+			.forEach(i => modelRow(host, i, false));
+		return;
+	}
+	if (tagFilter) {   // タグ絞り込み: フラットな一覧
+		const ids = DATA.models.map((m, i) => i).filter(i => DATA.models[i].cat !== "bg" && effTags(i).includes(tagFilter));
+		if (!ids.length) { const e = document.createElement("div"); e.className = "insp-empty"; e.textContent = "該当なし"; host.appendChild(e); }
+		ids.forEach(i => modelRow(host, i, false));
+		return;
+	}
+	if (fixFilter) {   // 要修正だけ表示: フラットな一覧
+		const ids = DATA.models.map((m, i) => i).filter(i => DATA.models[i].cat !== "bg" && fixSet.has(fixKeyOf(i)));
+		if (!ids.length) { const e = document.createElement("div"); e.className = "insp-empty"; e.textContent = "要修正はありません"; host.appendChild(e); }
+		ids.forEach(i => modelRow(host, i, false));
+		return;
+	}
+	// フラット並び (新着/名前/サイズ): グループを畳んで一列に並べる。
+	if (sortMode !== "group") {
+		const root = document.createElement("div");
+		root.className = "cat" + (viewMode === "grid" ? " on" : "");
+		root.innerHTML = '<span>すべて</span><span>' + browsableIds().length + '</span>';
+		root.onclick = () => goGrid();
+		root.onmouseenter = () => { hoverGroup = null; };
+		host.appendChild(root);
+		orderedIds().forEach(i => modelRow(host, i, false));
+		return;
+	}
+	// 分類並び: ルート「すべて」: クリックで全体表示 / トグルでグループ群を開閉。
+	const root = document.createElement("div");
+	root.className = "cat" + (viewMode === "grid" ? " on" : "");
+	root.innerHTML = '<span><span class="tw">' + (allOpen ? "▾" : "▸") + '</span> すべて</span><span>' + browsableIds().length + '</span>';
+	root.querySelector(".tw").onclick = e => { e.stopPropagation(); allOpen = !allOpen; buildModelList(); };
+	root.onclick = () => goGrid();
+	root.onmouseenter = () => { hoverGroup = null; };
+	host.appendChild(root);
+	if (!allOpen) return;
+	for (const [name, test] of MODEL_GROUPS) {
+		const ids = DATA.models.map((m, i) => i).filter(i => DATA.models[i].cat !== "bg" && test(DATA.models[i]));
+		if (!ids.length) continue;
+		const open = openCats.has(name);
+		const sel = (viewMode === "group" && groupCat === name) || (viewMode === "single" && catOf(cur) === name);
+		const g = document.createElement("div");
+		g.className = "cat grp" + (sel ? " on" : "");
+		g.innerHTML = '<span><span class="tw">' + (open ? "▾" : "▸") + '</span> ' + name + '</span><span>' + ids.length + '</span>';
+		g.querySelector(".tw").onclick = e => { e.stopPropagation(); open ? openCats.delete(name) : openCats.add(name); buildModelList(); };
+		g.onclick = () => goGroup(name);                          // グループ選択 → その分類だけ表示
+		g.onmouseenter = () => { hoverGroup = name; };
+		g.onmouseleave = () => { if (hoverGroup === name) hoverGroup = null; };
+		host.appendChild(g);
+		if (open) ids.forEach(i => modelRow(host, i, true));      // 開いていれば単体CG名
+	}
+}
+
+function updateStats() {
+	if (!DATA) return;
+	if (viewMode === "scene") {
+		const sushiN = DATA.models.filter(m => m.cat === "sushi").length;
+		stats.textContent = sceneForm === "serp"
+			? "大型店 (蛇行レーン) / " + SERP.pockets + " 入り江 / " + sushiN + " ネタ循環"
+			: "通常店 (回転レーン) / " + LANE.dishCount + " 皿 / " + sushiN + " ネタ循環";
+	} else if (viewMode === "group") {
+		const g = MODEL_GROUPS.find(x => x[0] === groupCat);
+		const n = g ? DATA.models.filter(m => m.cat !== "bg" && g[1](m)).length : 0;
+		stats.textContent = "分類: " + (groupCat || "—") + " / " + n + " 個";
+	} else if (viewMode === "grid") {
+		const ms = DATA.models.filter(m => m.cat !== "bg");
+		const v = ms.reduce((s, m) => s + m.verts.length, 0);
+		const f = ms.reduce((s, m) => s + m.faces.length, 0);
+		stats.textContent = ms.length + " モデル / " + v + " 頂点 / " + f + " 面";
+	} else {
+		const m = DATA.models[cur];
+		const info = m.name + " / " + m.verts.length + " 頂点 / " + m.faces.length + " 面 / 追加 " + addedDateStr(cur);
+		if (VIEW_ONLY) { stats.textContent = info; return; }   // 公開版はパス非表示
+		const rel = m.rel || (m.key ? m.key + ".obj" : m.name);   // 相対 OBJ パス (Claude への指示・コピー用)
+		stats.innerHTML = "";
+		stats.appendChild(document.createTextNode(info + " / "));
+		const pc = document.createElement("span"); pc.className = "pathcopy"; pc.textContent = "📋 " + rel; pc.title = "クリックでパスをコピー";
+		pc.onclick = () => navigator.clipboard.writeText(rel).then(
+			() => { pc.textContent = "✓ コピー: " + rel; setTimeout(() => { pc.textContent = "📋 " + rel; }, 1200); }, () => {});
+		stats.appendChild(pc);
+	}
+}
+
+// デバッグ/検証用: コンソールから視点を直接設定できる
+window.setView = (y, p, z) => { yaw = y; pitch = p; zoom = z || 1; };
+
+function resize() {
+	const wrap = document.getElementById("canvas-wrap");
+	const cssW = wrap.clientWidth, cssH = wrap.clientHeight;
+	const h = Math.round(RES_W * cssH / cssW);
+	if (!isFinite(h) || h < 1 || cssW < 1) return;  // レイアウト未確定 (幅0) のフレームをスキップ
+	if (cv.width !== RES_W || cv.height !== h) {
+		cv.width = RES_W; cv.height = h;
+		img = ctx.createImageData(RES_W, h);
+		px32 = new Uint32Array(img.data.buffer);
+		zbuf = new Float32Array(RES_W * h);
+		resH = h;
+	}
+	cv.style.width = cssW + "px";
+	cv.style.height = cssH + "px";
+}
+
+// =============================================================================
+//  シーン構築 (インスタンス = {mi: モデル番号, o: [x,y,z] 平行移動})
+// =============================================================================
+
+function plateIndex() {
+	return DATA.models.findIndex(m => m.name === "皿");
+}
+
+// 一覧スケール: 実寸 (rs, cm) を単一の真実として表示比を導出する。
+// rs を SIZE_EXP 乗で緩く圧縮し (実寸そのままだと寿司が点・什器が画面占有になる)、
+// REF_CM (= 寿司一皿 12cm) を 1 ユニットに正規化。各モデルのネイティブ最長辺で
+// 割って「描画後の最長辺 = (rs/REF)^EXP ユニット」になるスケールを返す。
+const GRID_REF_CM = 12, GRID_SIZE_EXP = 0.7;
+function gridScale(mi) {
+	const b = bboxes[mi];
+	const nativeLongest = Math.max(b.hi[0] - b.lo[0], b.hi[1] - b.lo[1], b.hi[2] - b.lo[2]) || 1;
+	const rel = Math.pow((DATA.models[mi].rs || 30) / GRID_REF_CM, GRID_SIZE_EXP);
+	return rel / nativeLongest;
+}
+
+// カルーセルのイージングと横オフセット (単体の前/次遷移)。
+// next(dir=+1) なら全スロットを左へ GAP 分流し、隣(+1)が中央へ来る。完了で cur を差し替え。
+function easeIO(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
+function carouselOffset() {
+	if (!slide) return 0;
+	return -slide.dir * CAROUSEL_GAP * easeIO(Math.min(1, slide.t));
+}
+// 単体カルーセルでの mi の配置: 皿込み実効bbox を共通サイズへ正規化し slotX へ中心化。
+// buildScene と 寸法オーバーレイで共有 (ズレ防止)。返り値 {s, o, wp, pi}。
+function carouselPlace(mi, slotX) {
+	const b = bboxes[mi];
+	let lo = [b.lo[0], b.lo[1], b.lo[2]], hi = [b.hi[0], b.hi[1], b.hi[2]];
+	const pi = chk("plate").checked ? plateIndex() : -1;
+	const wp = pi >= 0 && mi !== pi && DATA.models[mi].cat === "sushi";
+	if (wp) { const p = bboxes[pi]; for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], p.lo[k] + (k === 1 ? PLATE_OFFSET_Y : 0)); hi[k] = Math.max(hi[k], p.hi[k] + (k === 1 ? PLATE_OFFSET_Y : 0)); } }
+	const r = Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) / 2 || 1e-6;
+	const s = CAROUSEL_R / r;
+	const cx = (lo[0] + hi[0]) / 2, cy = (lo[1] + hi[1]) / 2, cz = (lo[2] + hi[2]) / 2;
+	return { s, o: [slotX - cx * s, -cy * s, -cz * s], wp, pi, piv: [cx, cy, cz] };
+}
+
+// 前後ナビ用の黄色い二等辺三角柱 (地面=X-Z 平面に寝かせ、上方向に厚みを持たせる)。sign=+1:右(次) / -1:左(前)。先端が進行方向。
+let ARROW_L = null, ARROW_R = null;
+function arrowMesh(sign, color) {
+	const L = 0.46, W = 0.32, t = 0.14;  // 先端までの長さ / 半幅 / 厚み(高さ)
+	const tri = [[sign * L, 0], [sign * -L * 0.55, W], [sign * -L * 0.55, -W]];   // (x,z) の三角
+	const verts = [], faces = [];
+	for (const p of tri) verts.push([p[0], 0, p[1]]);   // 0,1,2 = 底面 (グリッド面に接地)
+	for (const p of tri) verts.push([p[0], t, p[1]]);   // 3,4,5 = 上面
+	faces.push([0, 2, 1, -1, 0]);                       // 底面
+	faces.push([3, 4, 5, -1, 0]);                       // 上面
+	for (let i = 0; i < 3; i++) { const j = (i + 1) % 3; faces.push([i, j, j + 3, i + 3, 0]); }  // 側面3枚
+	return finalizeModel("arrow", verts, faces, [color]);
+}
+function ensureArrows() { if (!ARROW_L) { const Y = [0.97, 0.82, 0.16]; ARROW_L = arrowMesh(-1, Y); ARROW_R = arrowMesh(1, Y); } }
+// 左右に前後ナビ矢印を追加。自転しない (ry=-yaw で固定カメラに正対)。クリック判定用に _arrowWorld を更新。
+function pushNavArrows(inst, mode, ax, ay = 0) {
+	ensureArrows();
+	const ry = 0, s = 1.0;   // 地面に寝かせ、X軸(中央CGからの放射方向)に真っ直ぐ。底辺が中央CGを向く。
+	inst.push({ model: ARROW_L, o: [-ax, ay, 0], s, ry });
+	inst.push({ model: ARROW_R, o: [ax, ay, 0], s, ry });
+	const prev = mode === "single" ? () => startSlide(-1) : () => stepGroup(-1);
+	const next = mode === "single" ? () => startSlide(1) : () => stepGroup(1);
+	_arrowWorld = [{ x: -ax, y: ay, z: 0, act: prev }, { x: ax, y: ay, z: 0, act: next }];
+}
+// 分類表示で前/次のグループへ
+function stepGroup(dir) {
+	const N = MODEL_GROUPS.length;
+	let gi = MODEL_GROUPS.findIndex(g => g[0] === groupCat); if (gi < 0) gi = 0;
+	goGroup(MODEL_GROUPS[((gi + dir) % N + N) % N][0]);
+}
+
+function buildScene() {
+	const inst = [];
+	_arrowWorld = null;          // 矢印クリック判定は単体/分類でのみ有効
+	const pi = chk("plate").checked ? plateIndex() : -1;
+	const plated = mi => pi >= 0 && mi !== pi && DATA.models[mi].cat === "sushi";
+
+	if (viewMode === "scene") return buildRestaurant();
+
+	if (viewMode === "single") {
+		// カルーセル: cur を中央、前後の CG を左右スロットに薄く配置 (端で見切れる)。
+		// 各 CG は共通サイズ(半径 CAROUSEL_R)へ正規化し y=0 中心に置く → カメラ固定で並べられる。
+		const ids = orderedIds(); let ci = ids.indexOf(cur); if (ci < 0) ci = 0;
+		const sx = carouselOffset();
+		let arrowY = 0;                                                // 前後ナビ三角を浮かせる高さ (= 中央CGの上下中央)
+		for (const rel of [-2, -1, 0, 1, 2]) {
+			const mi = ids[((ci + rel) % ids.length + ids.length) % ids.length];
+			const slotX = rel * CAROUSEL_GAP + sx;
+			const pl = carouselPlace(mi, slotX);
+			const focus = Math.abs(slotX) < CAROUSEL_GAP * 0.5;            // 中央のみ
+			const dim = focus ? 1 : 0.30;                                  // 中央=明 / 隣=薄暗
+			const ent = { mi, o: pl.o, s: pl.s, dim };
+			if (focus) {
+				ent.ry = spin; ent.rx = spinX; ent.piv = pl.piv;          // 中央だけ上下左右フリー回転 (bbox中心)。隣は静止。
+				arrowY = (bboxes[mi].lo[1] + bboxes[mi].hi[1]) / 2 * pl.s + pl.o[1];   // 中央CGの上下中央の高さに矢印を浮かせる
+			}
+			inst.push(ent);
+			if (pl.wp) inst.push({ mi: pl.pi, o: [pl.o[0], pl.o[1] + PLATE_OFFSET_Y * pl.s, pl.o[2]], s: pl.s, dim });
+		}
+		_singleFloorY = arrowY;                                       // 参照用 (前後ナビ三角の高さ)
+		pushNavArrows(inst, "single", 1.55, arrowY);                  // 三角を中央CGの上下中央の高さに浮かせる
+		return inst;
+	}
+
+	// 一覧/分類: サイズ順 (大→小) に敷き詰め、手前=小さい・奥=大きい に並べる。
+	// 分類は中央に対象グループ、左右に前後グループを薄く配置 (クリックで切替)。
+	gridCells = [];
+	// サイズ頭打ち: 最長辺(=実寸由来)を SIZE_MAX へ滑らかに頭打ち。横長の店外物が潰れない。
+	const SIZE_MAX = 4.0, SIZE_P = 3, MARGIN = 0.45;
+	const softCap = L => L / Math.pow(1 + Math.pow(L / SIZE_MAX, SIZE_P), 1 / SIZE_P);
+	const makeCell = mi => {                       // 1セル (スケール/接地/皿/サイズ頭打ち)
+		let s = gridScale(mi), poff = PLATE_OFFSET_Y * s;
+		let lo = bboxes[mi].lo.map(v => v * s), hi = bboxes[mi].hi.map(v => v * s);
+		if (plated(mi)) { const p = bboxes[pi]; for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], p.lo[k] * s + (k === 1 ? poff : 0)); hi[k] = Math.max(hi[k], p.hi[k] * s + (k === 1 ? poff : 0)); } }
+		const longest = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) || 1e-6;
+		const f = softCap(longest) / longest;      // 1以下。巨大物のみ滑らかに縮む
+		if (f < 1) { s *= f; poff *= f; lo = lo.map(v => v * f); hi = hi.map(v => v * f); }
+		return { mi, s, poff, lo, hi, w: hi[0] - lo[0], d: hi[2] - lo[2] };
+	};
+	// グループ群を原点中心に1枚へ敷き詰め {inst, picks, width} を返す (位置は後で X シフト)。
+	const packTile = tests => {
+		const cells = [];
+		for (const test of tests)
+			for (const mi of DATA.models.map((m, i) => i).filter(i => DATA.models[i].cat !== "bg" && test(DATA.models[i]) && (!fixFilter || fixSet.has(fixKeyOf(i))) && (!tagFilter || effTags(i).includes(tagFilter))))
+				cells.push(makeCell(mi));
+		if (!cells.length) return { inst: [], picks: [], width: 0 };
+		cells.sort((a, b) => Math.max(b.w, b.d) - Math.max(a.w, a.d));   // 大→小 (奥→手前)
+		const area = cells.reduce((s, c) => s + (c.w + MARGIN) * (c.d + MARGIN), 0);
+		const targetW = Math.sqrt(area) * 1.2;
+		const rows = []; let row = [], rowW = 0;
+		for (const c of cells) {
+			if (row.length && rowW + MARGIN + c.w > targetW) { rows.push({ cells: row, w: rowW, d: Math.max(...row.map(x => x.d)) }); row = []; rowW = 0; }
+			rowW += (row.length ? MARGIN : 0) + c.w; row.push(c);
+		}
+		if (row.length) rows.push({ cells: row, w: rowW, d: Math.max(...row.map(x => x.d)) });
+		const totalD = rows.reduce((s, r) => s + r.d + MARGIN, 0) - MARGIN;
+		const width = Math.max(0, ...rows.map(r => r.w));
+		const out = [], picks = []; let zc = -totalD / 2;
+		for (const r of rows) {
+			let x = -r.w / 2;
+			for (const c of r.cells) {
+				const wx = x + c.w / 2, wz = zc + r.d / 2;
+				const t = [wx - (c.lo[0] + c.hi[0]) / 2, -c.lo[1], wz - (c.lo[2] + c.hi[2]) / 2];
+				out.push({ mi: c.mi, o: t, s: c.s });
+				if (plated(c.mi)) out.push({ mi: pi, o: [t[0], t[1] + c.poff, t[2]], s: c.s });
+				picks.push({ mi: c.mi, c: [wx, t[1] + (c.lo[1] + c.hi[1]) / 2, wz] });
+				x += c.w + MARGIN;
+			}
+			zc += r.d + MARGIN;
+		}
+		return { inst: out, picks, width };
+	};
+	// タイルを dx シフトして本シーンへ。dimVal を全インスタンスに付与 (隣グループの減光)。
+	const placeTile = (tile, dx, dimVal) => {
+		for (const it of tile.inst) { it.o[0] += dx; if (dimVal != null) it.dim = dimVal; inst.push(it); }
+		for (const p of tile.picks) { p.c[0] += dx; gridCells.push(p); }
+	};
+
+	if (viewMode === "group") {
+		const N = MODEL_GROUPS.length, gi = Math.max(0, MODEL_GROUPS.findIndex(g => g[0] === groupCat));
+		const center = packTile([MODEL_GROUPS[gi][1]]);
+		const prevT = packTile([MODEL_GROUPS[(gi - 1 + N) % N][1]]);
+		const nextT = packTile([MODEL_GROUPS[(gi + 1) % N][1]]);
+		const GAPG = 1.8;
+		placeTile(center, 0, undefined);
+		if (prevT.width) placeTile(prevT, -(center.width / 2 + GAPG + prevT.width / 2), 0.26);
+		if (nextT.width) placeTile(nextT, +(center.width / 2 + GAPG + nextT.width / 2), 0.26);
+		// カメラは中央タイルだけにフレーミング (隣の大きいグループの奥行きで引きすぎないよう)。
+		const cb = sceneBounds(center.inst.length ? center.inst : inst);
+		_groupFrame = { cy: (cb.lo[1] + cb.hi[1]) / 2, cz: (cb.lo[2] + cb.hi[2]) / 2,
+			radius: Math.max((cb.hi[0] - cb.lo[0]) / 2, (cb.hi[2] - cb.lo[2]) / 2, (cb.hi[1] - cb.lo[1]) / 2, 1e-6) };
+		pushNavArrows(inst, "group", center.width / 2 + 0.95, 0);   // 前後グループへ (床=y0 に置く)
+		return inst;
+	}
+	placeTile(packTile(MODEL_GROUPS.map(g => g[1])), 0, undefined);   // 一覧: 全グループ1枚
+	return inst;
+}
+
+function sceneBounds(inst) {
+	const lo = [9e9, 9e9, 9e9], hi = [-9e9, -9e9, -9e9];
+	for (const it of inst) {
+		const b = it.model ? it.model.bbox : bboxes[it.mi];
+		const s = it.s || 1, ry = it.ry || 0;
+		const cr = Math.cos(ry), sr = Math.sin(ry);
+		// bbox 8 隅をインスタンス変換して累積 (回転・スケール対応)
+		for (let ci = 0; ci < 8; ci++) {
+			const vx = ci & 1 ? b.hi[0] : b.lo[0];
+			const vy = ci & 2 ? b.hi[1] : b.lo[1];
+			const vz = ci & 4 ? b.hi[2] : b.lo[2];
+			const x = (vx * cr + vz * sr) * s + it.o[0];
+			const y = vy * s + it.o[1];
+			const z = (-vx * sr + vz * cr) * s + it.o[2];
+			if (x < lo[0]) lo[0] = x; if (x > hi[0]) hi[0] = x;
+			if (y < lo[1]) lo[1] = y; if (y > hi[1]) hi[1] = y;
+			if (z < lo[2]) lo[2] = z; if (z > hi[2]) hi[2] = z;
+		}
+	}
+	return { lo, hi };
+}
+
+// =============================================================================
+//  店内モード (ゲームの回転寿司レーンを再現)
+// =============================================================================
+// 定数は scripts/lane/ 由来:
+//   track.gd          初期レーン hl=1.25, r=1.2, LANE_TOP_Y=0.35
+//   belt_builder.gd   HALF_WIDTH=0.4, 天面 y=0.15, 厚み 0.15
+//   counter_builder.gd OUTER_EXTEND=0.4, 天面 y=0, 小物 14 個交互
+//   sushi_pool.gd     LANE_SPEED=0.10, ROTATION_SPEED=1.5, PLATE_SCALE=0.25, PLATE_REST_Y=-0.125
+//   chef_system.gd    CHEF_SCALE=0.15, 中央 (0,-0.4,0.8×レーン比)
+//   customer_ai.gd    SCALE=0.12, Y=-0.4, 席=中心線+0.9 外側
+
+const LANE = {
+	hl: 1.25, r: 1.2, topY: 0.35,
+	beltHW: 0.4, beltTopY: 0.15, beltBotY: 0.0,
+	counterExtend: 0.4, counterTopY: 0.0, counterBotY: -0.2,
+	speed: 0.10, spinSpeed: 1.5, sushiScale: 0.25, plateRestY: -0.125,
+	dishCount: 12,
+};
+let laneOffset = 0, laneSpin = 0;
+let PROC = null;
+
+// 通常店レーンの周長 (loopPos と同じ角丸長方形の式)。
+// 蛇行は周長がずっと長いので、進行を割合(0.10/s)のままにすると見た目の流速が速くなる。
+// 通常店と同じ"物理的な流速"になるよう、蛇行の割合速度をこの周長比でスケールする。
+const LOOP_LEN = (function () {
+	const hx = LANE.hl + LANE.r, hz = LANE.r;
+	const cr = Math.min(LANE.r * 0.5, Math.min(hx, hz) - 0.01);
+	return 2 * (2 * (hx - cr)) + 2 * (2 * (hz - cr)) + 4 * (Math.PI * 0.5 * cr);
+})();
+
+// track.gd get_position(FORM_LOOP) の移植: 手前直線→右カーブ→奥直線→左カーブ
+// 角丸長方形のトラック (track.gd get_position と同じ式 / CORNER_FRAC=0.5)。
+function loopPos(p) {
+	const hx = LANE.hl + LANE.r, hz = LANE.r, y = LANE.topY;
+	const cr = Math.min(LANE.r * 0.5, Math.min(hx, hz) - 0.01);
+	const sx = 2 * (hx - cr), sz = 2 * (hz - cr), arc = Math.PI * 0.5 * cr;
+	const total = 2 * sx + 2 * sz + 4 * arc;
+	let t = (((p % 1) + 1) % 1) * total;
+	if (t < sx) return [-(hx - cr) + t, y, hz];
+	t -= sx;
+	if (t < arc) { const a = Math.PI * 0.5 * (1 - t / arc); return [hx - cr + cr * Math.cos(a), y, hz - cr + cr * Math.sin(a)]; }
+	t -= arc;
+	if (t < sz) return [hx, y, (hz - cr) - t];
+	t -= sz;
+	if (t < arc) { const a = -Math.PI * 0.5 * (t / arc); return [hx - cr + cr * Math.cos(a), y, -(hz - cr) + cr * Math.sin(a)]; }
+	t -= arc;
+	if (t < sx) return [(hx - cr) - t, y, -hz];
+	t -= sx;
+	if (t < arc) { const a = -Math.PI * 0.5 - Math.PI * 0.5 * (t / arc); return [-(hx - cr) + cr * Math.cos(a), y, -(hz - cr) + cr * Math.sin(a)]; }
+	t -= arc;
+	if (t < sz) return [-hx, y, -(hz - cr) + t];
+	t -= sz;
+	const a = Math.PI - Math.PI * 0.5 * (t / arc);
+	return [-(hx - cr) + cr * Math.cos(a), y, hz - cr + cr * Math.sin(a)];
+}
+
+// --- 大型店 (蛇行レーン form=SERPENTINE) の経路。track.gd 由来 ---
+// 入り江数 N + 寸法からウェイポイントを生成 → 角丸フィレット → 弧長一様 LUT。
+// serp_* 定数は scripts/lane/track.gd (2026-06-15 確定値) を移植。
+const SERP = {
+	pockets: 2, table_w: 3.8, gap: 0.85,
+	// バックヤードを「レーン幅=1ブロック(=beltHW*2=0.8)」のバンドで構成 (大型店専用の深い部屋 bg_restaurant_large 前提):
+	//   front lane(pocketZ=0.2) / 調理台(-0.6) / 職人(-1.4) / back lane(zBack=-2.2) / バイト(-3.0) / キッチン壁(-4.15)
+	// pocketZ は通常店と同じ 0.2 (客席はそのまま)。zBack = pocketZ - 3*0.8 = -2.2 で 6 バンドを全て 1 ブロックに。
+	// 注: pocketZ/zBack は track.gd 由来。ここを変えると check_sync の [C] でゲームとドリフトする。
+	zBack: -2.2, zFront: 5.8, pocketZ: 0.2, corner: 0.8,
+};
+SERP.hx = () => (SERP.pockets * SERP.table_w + (SERP.pockets + 1) * SERP.gap) * 0.5;
+SERP.glassZ = () => SERP.pocketZ + 1.0;
+let _serpLut = null, _serpLen = 0;
+
+// track.gd _serp_waypoints の移植 (背面→右辺→前面で N 個の入り江を刻む櫛形・時計回り)
+function serpWaypoints() {
+	const hx = SERP.hx(), zb = SERP.zBack, zf = SERP.zFront, pz = SERP.pocketZ;
+	const pts = [[-hx, zb], [hx, zb], [hx, zf]];
+	let cursor = hx;
+	for (let i = 0; i < SERP.pockets; i++) {
+		const xr = cursor - SERP.gap, xl = xr - SERP.table_w;
+		pts.push([xr, zf], [xr, pz], [xl, pz], [xl, zf]);
+		cursor = xl;
+	}
+	pts.push([-hx, zf]);
+	return pts;
+}
+
+// track.gd _build_serp_lut の移植: 各角にフィレット (半径 corner の円弧) → 弧長一様 360 点。
+function buildSerpLut() {
+	const pts = serpWaypoints(), n = pts.length;
+	const norm = v => { const l = Math.hypot(v[0], v[1]) || 1; return [v[0] / l, v[1] / l]; };
+	const dense = [];
+	for (let i = 0; i < n; i++) {
+		const prev = pts[(i - 1 + n) % n], cur = pts[i], nxt = pts[(i + 1) % n];
+		const u = norm([prev[0] - cur[0], prev[1] - cur[1]]);
+		const v = norm([nxt[0] - cur[0], nxt[1] - cur[1]]);
+		const theta = Math.acos(Math.max(-1, Math.min(1, u[0] * v[0] + u[1] * v[1])));
+		if (theta > Math.PI - 0.02) { dense.push(cur); continue; }  // ほぼ直線
+		const half = theta * 0.5;
+		const lp = Math.hypot(prev[0] - cur[0], prev[1] - cur[1]);
+		const ln = Math.hypot(nxt[0] - cur[0], nxt[1] - cur[1]);
+		const tmax = Math.min(lp, ln) * 0.45;
+		const tdist = Math.min(SERP.corner / Math.tan(half), tmax);
+		const cr = tdist * Math.tan(half);
+		const bis = norm([u[0] + v[0], u[1] + v[1]]);
+		const center = [cur[0] + bis[0] * (cr / Math.sin(half)), cur[1] + bis[1] * (cr / Math.sin(half))];
+		const tin = [cur[0] + u[0] * tdist, cur[1] + u[1] * tdist];
+		const tout = [cur[0] + v[0] * tdist, cur[1] + v[1] * tdist];
+		const a0 = Math.atan2(tin[1] - center[1], tin[0] - center[0]);
+		let da = Math.atan2(tout[1] - center[1], tout[0] - center[0]) - a0;
+		while (da > Math.PI) da -= 2 * Math.PI;
+		while (da < -Math.PI) da += 2 * Math.PI;
+		const sub = 20;
+		for (let s = 0; s <= sub; s++) {
+			const ang = a0 + da * s / sub;
+			dense.push([center[0] + Math.cos(ang) * cr, center[1] + Math.sin(ang) * cr]);
+		}
+	}
+	const dn = dense.length, cum = [0];
+	for (let i = 1; i <= dn; i++) {
+		const a = dense[i - 1], b = dense[i % dn];
+		cum.push(cum[i - 1] + Math.hypot(b[0] - a[0], b[1] - a[1]));
+	}
+	const total = cum[dn];
+	const samples = 360, lut = [];
+	for (let k = 0; k < samples; k++) {
+		const target = (k / samples) * total;
+		let j = 1; while (j <= dn && cum[j] < target) j++;
+		const segT = cum[j] > cum[j - 1] ? (target - cum[j - 1]) / (cum[j] - cum[j - 1]) : 0;
+		const a = dense[(j - 1) % dn], b = dense[j % dn];
+		lut.push([a[0] + (b[0] - a[0]) * segT, a[1] + (b[1] - a[1]) * segT]);
+	}
+	_serpLen = total;
+	return lut;
+}
+
+function serpPos(p) {
+	if (!_serpLut) _serpLut = buildSerpLut();
+	const m = _serpLut.length;
+	const f = (((p % 1) + 1) % 1) * m;
+	const i0 = Math.floor(f) % m, i1 = (i0 + 1) % m, t = f - Math.floor(f);
+	const a = _serpLut[i0], b = _serpLut[i1];
+	return [a[0] + (b[0] - a[0]) * t, LANE.topY, a[1] + (b[1] - a[1]) * t];
+}
+
+// 店内シーンの形態 ("loop" = 通常店 / "serp" = 大型店)。切替ボタンで変更。
+let sceneForm = "loop";
+function trackPos(p) { return sceneForm === "serp" ? serpPos(p) : loopPos(p); }
+
+function finalizeModel(name, verts, faces, mats) {
+	const lo = [9e9, 9e9, 9e9], hi = [-9e9, -9e9, -9e9];
+	for (const v of verts) for (let i = 0; i < 3; i++) {
+		lo[i] = Math.min(lo[i], v[i]); hi[i] = Math.max(hi[i], v[i]);
+	}
+	return { name, verts, faces, mats, bbox: { lo, hi } };
+}
+
+// トラック沿いのリング (天面 + 外側面 + 内側面)。belt/counter_builder の移植。
+function ringMesh(name, innerMag, outerMag, topY, botY, color) {
+	const SEG = sceneForm === "serp" ? 240 : 80, verts = [], faces = [];
+	const push = v => verts.push(v) - 1;
+	// 各頂点の外向き法線を前後の点からの中心差分で求めて隣接セグメントで共有する
+	// (セグメント毎に法線を出すとカーブで頂点がズレて継ぎ目に隙間ができる)。
+	const pts = [], nx = [], nz = [];
+	for (let i = 0; i < SEG; i++) pts.push(trackPos(i / SEG));
+	for (let i = 0; i < SEG; i++) {
+		const a = pts[(i - 1 + SEG) % SEG], b = pts[(i + 1) % SEG];
+		let dx = b[0] - a[0], dz = b[2] - a[2];
+		const dl = Math.hypot(dx, dz) || 1;
+		nx.push(-dz / dl); nz.push(dx / dl);  // 単位外向き
+	}
+	for (let i = 0; i < SEG; i++) {
+		const j = (i + 1) % SEG, p0 = pts[i], p1 = pts[j];
+		const c = [
+			push([p0[0] - nx[i] * innerMag, topY, p0[2] - nz[i] * innerMag]),  // 0: i0 top
+			push([p1[0] - nx[j] * innerMag, topY, p1[2] - nz[j] * innerMag]),  // 1: i1 top
+			push([p1[0] + nx[j] * outerMag, topY, p1[2] + nz[j] * outerMag]),  // 2: o1 top
+			push([p0[0] + nx[i] * outerMag, topY, p0[2] + nz[i] * outerMag]),  // 3: o0 top
+			push([p0[0] - nx[i] * innerMag, botY, p0[2] - nz[i] * innerMag]),  // 4: i0 bot
+			push([p1[0] - nx[j] * innerMag, botY, p1[2] - nz[j] * innerMag]),  // 5: i1 bot
+			push([p1[0] + nx[j] * outerMag, botY, p1[2] + nz[j] * outerMag]),  // 6: o1 bot
+			push([p0[0] + nx[i] * outerMag, botY, p0[2] + nz[i] * outerMag]),  // 7: o0 bot
+		];
+		faces.push([c[0], c[1], c[2], c[3], 0]);  // 天面
+		faces.push([c[3], c[2], c[6], c[7], 0]);  // 外側面
+		faces.push([c[1], c[0], c[4], c[5], 0]);  // 内側面
+	}
+	return finalizeModel(name, verts, faces, [color]);
+}
+
+// 原点中心のボックス (counter_builder の BoxMesh 小物用)
+function boxMesh(name, sx, sy, sz, color) {
+	const x = sx / 2, y = sy / 2, z = sz / 2;
+	const verts = [
+		[-x, -y, z], [x, -y, z], [x, y, z], [-x, y, z],
+		[-x, -y, -z], [x, -y, -z], [x, y, -z], [-x, y, -z],
+	];
+	const faces = [
+		[0, 1, 2, 3, 0], [5, 4, 7, 6, 0], [1, 5, 6, 2, 0],
+		[4, 0, 3, 7, 0], [3, 2, 6, 7, 0], [4, 5, 1, 0, 0],
+	];
+	const m = finalizeModel(name, verts, faces, [color]);
+	m.h = sy;
+	return m;
+}
+
+// 調理エリア (調理台 + ネタケース) の静的ボックス群。kitchen_builder.gd の移植。
+// 職人 ← 調理台 ← ネタケース ← レーン の 3 層。寸法は LANE 定数から算出する。
+// ガラスは不透明ラスタライザでは中身を隠すため省略し、ステンレス天枠で輪郭を示す。
+function buildKitchenBoxes() {
+	const FLOOR = -0.4;
+	const innerZ = LANE.r - LANE.beltHW;            // レーン内縁 0.8
+	const halfX = LANE.hl * 0.8;                     // 1.0
+	const caseBackZ = innerZ - 0.05;
+	const caseDepth = 0.26, caseFrontZ = caseBackZ - caseDepth;
+	const prepBackZ = caseFrontZ - 0.03;
+	const prepDepth = 0.30, prepFrontZ = prepBackZ - prepDepth;
+	const STEEL_D = [0.45, 0.48, 0.52], STEEL_L = [0.74, 0.77, 0.80];
+	const TRAY = [0.92, 0.93, 0.94], WOOD = [0.88, 0.78, 0.58];
+	const NETA = [[0.85, 0.20, 0.18], [0.95, 0.55, 0.30], [0.93, 0.92, 0.88],
+		[0.95, 0.80, 0.30], [0.95, 0.62, 0.52], [0.35, 0.45, 0.55]];
+	const out = [];
+	const box = (sx, sy, sz, col, x, y, z) => out.push({ model: boxMesh("kit", sx, sy, sz, col), o: [x, y, z] });
+
+	// 調理台 (ステンレス土台 + 白木天板)
+	let zc = (prepFrontZ + prepBackZ) * 0.5, depth = prepBackZ - prepFrontZ;
+	box(halfX * 2, -FLOOR - 0.02, depth, STEEL_D, 0, (FLOOR - 0.02) * 0.5, zc);
+	box(halfX * 2 + 0.06, 0.06, depth + 0.04, WOOD, 0, 0, zc);
+
+	// ネタケース (ステンレス土台 + トレイ + ネタ 2 列 + 天枠)
+	zc = (caseFrontZ + caseBackZ) * 0.5; depth = caseBackZ - caseFrontZ;
+	box(halfX * 2, -FLOOR, depth, STEEL_D, 0, FLOOR * 0.5, zc);
+	box(halfX * 2 + 0.04, 0.03, depth + 0.03, TRAY, 0, 0.015, zc);
+	const count = Math.max(4, Math.floor(halfX * 2 / 0.42));
+	const spacing = (halfX * 2 - 0.2) / Math.max(count - 1, 1);
+	const netaW = Math.min(spacing * 0.62, 0.30);
+	const rowOff = [-depth * 0.22, depth * 0.22];
+	let idx = 0;
+	for (let row = 0; row < 2; row++) for (let i = 0; i < count; i++) {
+		const col = NETA[idx % NETA.length]; idx++;
+		const px = -halfX + 0.1 + spacing * i;
+		box(netaW, 0.09, depth * 0.34, col, px, 0.075, zc + rowOff[row]);
+	}
+	box(halfX * 2 + 0.06, 0.025, depth + 0.05, STEEL_L, 0, 0.30, zc);
+	// ガラスケースの枠 (四隅の支柱)。ガラス面は不透明描画だと中身を隠すため枠のみで表現。
+	const cpx = halfX + 0.015, cz0 = zc - depth / 2 - 0.01, cz1 = zc + depth / 2 + 0.01;
+	for (const sx of [-cpx, cpx]) for (const sz of [cz0, cz1]) {
+		box(0.03, 0.27, 0.03, STEEL_L, sx, 0.165, sz);
+	}
+	return out;
+}
+
+// 蛇行店のバックヤード厨房 (背面レーンのさらに奥に調理台+ネタケースのストリップ)。
+// 不透明ラスタライザではガラスが中身を隠すため、loop 同様ガラス面は省略し枠で示す。
+function buildSerpKitchenBoxes() {
+	const FLOOR = -0.4;
+	const hx = SERP.hx(), gz = SERP.glassZ(), bz = SERP.pocketZ;
+	const STEEL_D = [0.45, 0.48, 0.52], STEEL_L = [0.74, 0.77, 0.80];
+	const TRAY = [0.92, 0.93, 0.94], WOOD = [0.88, 0.78, 0.58], FRAME = [0.40, 0.42, 0.45];
+	const NETA = [[0.85, 0.20, 0.18], [0.95, 0.55, 0.30], [0.93, 0.92, 0.88],
+		[0.95, 0.80, 0.30], [0.95, 0.62, 0.52], [0.35, 0.45, 0.55]];
+	const out = [];
+	const box = (sx, sy, sz, col, x, y, z) => out.push({ model: boxMesh("kit", sx, sy, sz, col), o: [x, y, z] });
+	const U = LANE.beltHW * 2;                          // レーン幅 = 1 ブロック (0.8)
+	const zCase = gz - 0.42, zPrep = bz - U;            // ネタケース(ガラス寄り) / 調理台(front lane から1ブロック奥)
+	const bw = SERP.table_w, bhw = bw * 0.5;            // 入り江の幅に合わせた厨房ブロック (中央=入り江なしは空ける)
+	// 入り江ごとに「ネタケース + 調理台」を 1 セット = 入り江の真正面にのみ調理スペースが出る。
+	for (const blk of serpTableBlocks()) {
+		const cx = blk.c[0];
+		// ネタケース
+		box(bw, -FLOOR, 0.26, STEEL_D, cx, FLOOR * 0.5, zCase);
+		box(bw + 0.04, 0.03, 0.29, TRAY, cx, 0.015, zCase);
+		const count = Math.max(4, Math.floor(bw / 0.42));
+		const spacing = (bw - 0.2) / Math.max(count - 1, 1);
+		const netaW = Math.min(spacing * 0.62, 0.30);
+		for (let i = 0; i < count; i++) box(netaW, 0.09, 0.16, NETA[i % NETA.length], cx - bhw + 0.1 + spacing * i, 0.075, zCase);
+		box(bw + 0.06, 0.025, 0.31, STEEL_L, cx, 0.30, zCase);
+		// 調理台
+		box(bw, -FLOOR - 0.02, 0.25, STEEL_D, cx, (FLOOR - 0.02) * 0.5, zPrep);
+		box(bw + 0.06, 0.06, 0.29, WOOD, cx, 0, zPrep);
+	}
+	// ガラス仕切りの枠 (全幅・パーティション。ガラス面は不透明描画では中身を隠すので枠のみ)。z=gz
+	const ohw = hx + 0.35;
+	box(ohw * 2, 0.05, 0.18, FRAME, 0, 0.30, gz);          // 下端サッシ
+	box(ohw * 2, 0.06, 0.18, FRAME, 0, 1.15, gz);          // 上端サッシ
+	for (const sx of [-ohw, ohw]) box(0.06, 0.85, 0.18, FRAME, sx, 0.725, gz);  // 左右の縦桟
+	return out;
+}
+
+function ensureProc() {
+	if (PROC && PROC._form === sceneForm) return;  // 形態が変わったら作り直す
+	PROC = {
+		_form: sceneForm,
+		belt: ringMesh("ベルト", LANE.beltHW, LANE.beltHW, LANE.beltTopY, LANE.beltBotY, [0.55, 0.55, 0.55]),
+		counter: ringMesh("カウンター", LANE.beltHW, LANE.beltHW + LANE.counterExtend, LANE.counterTopY, LANE.counterBotY, [0.55, 0.38, 0.22]),
+		cup: boxMesh("コップ", 0.055, 0.08, 0.055, [0.92, 0.88, 0.75]),
+		bottle: boxMesh("ボトル", 0.042, 0.11, 0.042, [0.2, 0.12, 0.05]),
+		kitchen: sceneForm === "serp" ? buildSerpKitchenBoxes() : buildKitchenBoxes(),
+	};
+}
+
+// プロップ配置ヘルパー: 名前でモデルを探し、bbox の最大辺が target になるよう
+// スケールして底面を y に接地させる (hang=true は天面を y に合わせる = 吊り下げ用)。
+function propInst(name, x, y, z, target, ry, hang) {
+	const mi = DATA.models.findIndex(m => m.name === name);
+	if (mi < 0) return null;
+	const b = bboxes[mi];
+	const maxDim = Math.max(b.hi[0] - b.lo[0], b.hi[1] - b.lo[1], b.hi[2] - b.lo[2], 1e-6);
+	const s = target / maxDim;
+	const oy = hang ? y - b.hi[1] * s : y - b.lo[1] * s;
+	return { mi, o: [x, oy, z], s, ry: ry || 0 };
+}
+
+// 装飾配置エントリ {key,x,y,z,size,rot,hang} -> インスタンス。
+// key でモデルを引き、propInst と同じ「最大辺=size にスケール + 接地/吊り下げ」を行う。
+function decorInst(d) {
+	if (!d || !d.key) return null;
+	const mi = DATA.models.findIndex(m => m.key === d.key);
+	if (mi < 0) return null;
+	const b = bboxes[mi];
+	const maxDim = Math.max(b.hi[0] - b.lo[0], b.hi[1] - b.lo[1], b.hi[2] - b.lo[2], 1e-6);
+	const s = (d.size || 0.3) / maxDim;
+	const y = d.y || 0;
+	const oy = d.hang ? y - b.hi[1] * s : y - b.lo[1] * s;
+	return { mi, o: [d.x || 0, oy, d.z || 0], s, ry: (d.rot || 0) * Math.PI / 180 };
+}
+
+function buildRestaurant() {
+	ensureProc();
+	const inst = [];
+	const push = it => { if (it) inst.push(it); };
+
+	// 大型店は奥に深い専用ルーム (bg_restaurant_large)、通常店は共有ルーム (bg_restaurant)。
+	const bgKey = sceneForm === "serp" ? "bg_restaurant_large" : "bg_restaurant";
+	let bgIdx = DATA.models.findIndex(m => m.key === bgKey);
+	if (bgIdx < 0) bgIdx = DATA.models.findIndex(m => m.cat === "bg");   // フォールバック
+	// 大型店(蛇行)は俯瞰カメラで天井(背景モデルの y≈2.5 水平面)が邪魔なので、その面だけカリング。
+	if (bgIdx >= 0) inst.push(sceneForm === "serp" ? { mi: bgIdx, o: [0, -0.4, 0], cullY: 2.0 } : { mi: bgIdx, o: [0, -0.4, 0] });
+	inst.push({ model: PROC.belt, o: [0, 0, 0] });
+	// 通常店はベルト外周の全周カウンターリング。大型店(蛇行)は左右の壁辺だけに
+	// 2 本バーを出す (CounterBuilder._build_mesh_serp と同じ。全周リングにはしない)。
+	if (sceneForm !== "serp") inst.push({ model: PROC.counter, o: [0, 0, 0] });
+
+	// 調理エリア (調理台 + ネタケース)。loop=中央 / serp=バックヤード。
+	for (const it of PROC.kitchen) inst.push(it);
+
+	// 寿司皿 (等間隔でレーンを周回 + 自転、ネタ循環)。蛇行は経路が長いので皿数を増やす。
+	if (sceneForm === "serp" && !_serpLut) _serpLut = buildSerpLut();
+	const sushiIds = DATA.models.map((m, i) => i).filter(i => DATA.models[i].cat === "sushi");
+	const plateId = plateIndex();
+	const dishCount = sceneForm === "serp"
+		? Math.min(48, Math.max(24, Math.round(_serpLen / 1.15))) : LANE.dishCount;
+	for (let k = 0; k < dishCount; k++) {
+		const p = trackPos(k / dishCount + laneOffset);
+		if (plateId >= 0) inst.push({ mi: plateId, o: [p[0], p[1] + LANE.plateRestY, p[2]], s: LANE.sushiScale, ry: laneSpin });
+		if (sushiIds.length) inst.push({ mi: sushiIds[k % sushiIds.length], o: p, s: LANE.sushiScale, ry: laneSpin });
+	}
+
+	// 大型店 (蛇行) は専用の家具・人配置。通常店はここで終わらず以下の loop 専用配置へ。
+	if (sceneForm === "serp") { buildSerpScene(inst, push); return inst; }
+
+	// ===== 以下は通常店 (loop) のみ =====
+	// カウンター上の小物: 湯呑み/醤油差しを交互に 14 個 (モデルが無ければ箱で代替)
+	const off = LANE.beltHW + LANE.counterExtend * 0.5;
+	for (let i = 0; i < 14; i++) {
+		const t = (i + 0.5) / 14;
+		const p = trackPos(t), p2 = trackPos(t + 1 / 320);
+		let dx = p2[0] - p[0], dz = p2[2] - p[2];
+		const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
+		const px = p[0] - dz * off, pz = p[2] + dx * off;
+		const isCup = i % 2 === 0;
+		const it = propInst(isCup ? "湯呑み" : "醤油差し", px, LANE.counterTopY, pz, isCup ? 0.22 : 0.26);
+		if (it) inst.push(it);
+		else {
+			const box = isCup ? PROC.cup : PROC.bottle;
+			inst.push({ model: box, o: [px, LANE.counterTopY + box.h / 2, pz] });
+		}
+	}
+
+	// ガリ皿 4 枚 (湯呑み列 t=(i+0.5)/14 の中間に置いて重なりを避ける)
+	for (const t of [0.071, 0.286, 0.571, 0.786]) {
+		const p = trackPos(t), p2 = trackPos(t + 1 / 320);
+		let dx = p2[0] - p[0], dz = p2[2] - p[2];
+		const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
+		push(propInst("ガリ皿", p[0] - dz * off, LANE.counterTopY, p[2] + dx * off, 0.32));
+	}
+
+	// 装飾プロップ (data/decor_layout.json) — ゲームと共有。エディタで編集・保存できる。
+	for (const d of DECOR) push(decorInst(d));
+
+	// 職人 (1 人目、レーン中央手前)
+	// 職人は調理台の手前 (中央寄り) に立たせる → 職人 → 調理台 → ネタケース → レーン
+	const chefId = DATA.models.findIndex(m => m.name === "職人");
+	if (chefId >= 0) inst.push({ mi: chefId, o: [0, -0.4, 0.06], s: 0.15 });
+
+	// 客 (席 = トラック中心線 + 0.9 外側、手前 2 人は店内側を向く)
+	const custId = DATA.models.findIndex(m => m.name === "客");
+	if (custId >= 0) {
+		const seatZ = LANE.r + 0.9;
+		inst.push({ mi: custId, o: [-0.7, -0.4, seatZ], s: 0.12, ry: Math.PI });
+		inst.push({ mi: custId, o: [0.85, -0.4, seatZ], s: 0.12, ry: Math.PI });
+		inst.push({ mi: custId, o: [0.1, -0.4, -seatZ], s: 0.12 });
+	}
+	return inst;
+}
+
+// bbox 底面を floorY に接地し、最大辺を target にスケールしたインスタンス (index 指定版)。
+function groundInst(mi, x, floorY, z, target, ry) {
+	if (mi < 0) return null;
+	const b = bboxes[mi];
+	const maxDim = Math.max(b.hi[0] - b.lo[0], b.hi[1] - b.lo[1], b.hi[2] - b.lo[2], 1e-6);
+	const s = target / maxDim;
+	return { mi, o: [x, floorY - b.lo[1] * s, z], s, ry: ry || 0 };
+}
+
+// オーサリングスケール(s=1)で底面を floorY に接地 (ゲームのテーブル配置と同じ等倍)。
+function groundInst1(mi, x, floorY, z, ry) {
+	if (mi < 0) return null;
+	const b = bboxes[mi];
+	return { mi, o: [x, floorY - b.lo[1], z], s: 1, ry: ry || 0 };
+}
+
+// プロップ背面 (bbox 最小 z) を backZ にぴったり付け、最大辺を target にスケール (厨房機器の壁付け)。
+function flushBackInst(mi, x, floorY, backZ, target) {
+	if (mi < 0) return null;
+	const b = bboxes[mi];
+	const maxDim = Math.max(b.hi[0] - b.lo[0], b.hi[1] - b.lo[1], b.hi[2] - b.lo[2], 1e-6);
+	const s = target / maxDim;
+	return { mi, o: [x, floorY - b.lo[1] * s, backZ - b.lo[2] * s], s };
+}
+
+// track.gd serp_table_blocks の移植 (各入り江のテーブル矩形 center/half)。
+function serpTableBlocks() {
+	const hx = SERP.hx(), blocks = [];
+	let cursor = hx;
+	const cz = (SERP.pocketZ + SERP.zFront) * 0.5, hz = (SERP.zFront - SERP.pocketZ) * 0.5;
+	for (let i = 0; i < SERP.pockets; i++) {
+		const xr = cursor - SERP.gap, xl = xr - SERP.table_w;
+		blocks.push({ c: [(xr + xl) * 0.5, cz], h: [SERP.table_w * 0.5, hz] });
+		cursor = xl;
+	}
+	return blocks;
+}
+
+// customer_ai.gd _serp_stands の移植: 左右の壁辺 (|x|≈hx) の直線部だけに沿って
+// 外側へ STAND_OFFSET=0.9 ずらした 1 人用カウンター席の立ち位置を返す。
+// 背面(厨房)・前面(テーブル)・入り江 は除外。間隔 min_gap=1.2 で間引く。
+function serpStands() {
+	const out = [];
+	const samples = 96, hx = SERP.hx(), zf = SERP.zFront;
+	const zLo = SERP.glassZ() + 0.35, inset = 0.6, minGap = 1.2, STAND = 0.9;
+	let last = [1e9, 1e9];
+	for (let i = 0; i < samples; i++) {
+		const p = i / samples;
+		const pos = serpPos(p), nxt = serpPos((p + 1 / samples) % 1);
+		let dx = nxt[0] - pos[0], dz = nxt[2] - pos[2];
+		const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
+		if (Math.abs(Math.abs(pos[0]) - hx) >= 0.25) continue;   // 壁辺の直線部のみ
+		if (pos[2] < zLo || pos[2] > zf - inset) continue;
+		const sx = pos[0] - (-dz) * STAND, sz = pos[2] - dx * STAND;  // 外側 (-法線)
+		if (Math.hypot(sx - last[0], sz - last[1]) < minGap) continue;
+		out.push([sx, sz]);
+		last = [sx, sz];
+	}
+	return out;
+}
+
+// 大型店 (蛇行) の家具・人: 入り江のファミリーテーブル+着席客 / バックヤード職人 /
+// 壁辺カウンター (バー+小物+1人席客) / お会計 (レジ+店員)。loop と同じ「置くだけ」方式。
+function buildSerpScene(inst, push) {
+	const FLOOR = -0.4, hx = SERP.hx();
+	const gz = SERP.glassZ(), bz = SERP.pocketZ, zb = SERP.zBack, zf = SERP.zFront;
+	const U = LANE.beltHW * 2;       // レーン幅 = 1 ブロック (0.8)。バックヤードのバンド単位。
+	const RHX = 8.45, RBZ = -4.15;   // 大型店専用ルームの内壁 (make_background ZB_LARGE=-4.3 + WALL_T=0.15)
+	const custKeys = ["customer", "customer_child", "customer_large", "customer_slim",
+		"customer_elder", "customer_chubby", "customer_petite", "customer_toddler"];
+	let cidx = custKeys.map(k => DATA.models.findIndex(m => m.key === k)).filter(i => i >= 0);
+	if (!cidx.length) { const c = DATA.models.findIndex(m => m.name === "客"); if (c >= 0) cidx = [c]; }
+	let cseq = 0;
+	const seat = (x, z, ry) => { if (cidx.length) inst.push({ mi: cidx[(cseq++) % cidx.length], o: [x, FLOOR, z], s: 0.12, ry }); };
+
+	// 各入り江: テーブル2行 (各行 2人掛け(左)+4人掛け(右)) + 着席客
+	const t4 = DATA.models.findIndex(m => m.key === "table_set");
+	const t2 = DATA.models.findIndex(m => m.key === "table2_set");
+	for (const blk of serpTableBlocks()) {
+		const cx = blk.c[0];
+		for (const rz of [gz + 1.0, gz + 3.0]) {
+			const x2 = cx - 1.05;   // 2人掛け (左)
+			push(groundInst1(t2, x2, FLOOR, rz, 0));
+			seat(x2, rz - 0.65, 0); seat(x2, rz + 0.65, Math.PI);
+			const x4 = cx + 0.7;    // 4人掛け (右)
+			push(groundInst1(t4, x4, FLOOR, rz, 0));
+			seat(x4 - 0.36, rz - 0.72, 0); seat(x4 + 0.36, rz - 0.72, 0);
+			seat(x4 - 0.36, rz + 0.72, Math.PI); seat(x4 + 0.36, rz + 0.72, Math.PI);
+		}
+	}
+
+	// 職人: 各入り江の真正面、front lane から 2 ブロック奥 (= 調理台のさらに 1 ブロック奥)。中央は置かない。
+	const chefId = DATA.models.findIndex(m => m.name === "職人");
+	if (chefId >= 0) for (const blk of serpTableBlocks())
+		inst.push({ mi: chefId, o: [blk.c[0], FLOOR, bz - 2 * U], s: 0.20 });
+	// バイト: 各入り江の奥、front lane から 4 ブロック奥 (= back lane のさらに 1 ブロック奥)。中央は置かない。
+	const baitoId = DATA.models.findIndex(m => m.key === "person_worker");
+	if (baitoId >= 0) for (const blk of serpTableBlocks())
+		inst.push({ mi: baitoId, o: [blk.c[0], FLOOR, bz - 4 * U], s: 0.20 });
+
+	// 厨房機器 (背面壁にぴったり): 冷蔵庫 | 作業台×3 | 冷蔵庫
+	const fridgeId = DATA.models.findIndex(m => m.key === "kitchen_fridge");
+	const prepId = DATA.models.findIndex(m => m.key === "prep_table");
+	const eq = [[fridgeId, 1.9], [prepId, 1.15], [prepId, 1.15], [prepId, 1.15], [fridgeId, 1.9]];
+	for (let i = 0; i < eq.length; i++)
+		push(flushBackInst(eq[i][0], (i / (eq.length - 1) - 0.5) * hx * 1.48, FLOOR, RBZ, eq[i][1]));
+
+	// 裏口ドア (背面壁・右端)
+	push(flushBackInst(DATA.models.findIndex(m => m.key === "door"), RHX - 1.2, FLOOR, RBZ + 0.08, 1.9));
+
+	// 店内の壁際の棚 (左右)
+	const shelfId = DATA.models.findIndex(m => m.key === "wall_shelf");
+	if (shelfId >= 0) for (const side of [-1, 1]) for (const sz of [1.0, 2.6, 4.2])
+		push(groundInst(shelfId, side * (RHX - 0.28), FLOOR, sz, 1.5, side > 0 ? -Math.PI / 2 : Math.PI / 2));
+
+	// 壁辺カウンター (CounterBuilder._build_mesh_serp / _build_props_serp の移植)。
+	// レーン (x=±hx) の外側に 2 本バー + 卓上小物。全周リングにはしない。
+	const cz0 = gz + 0.35, cz1 = zf - 0.6;                       // ガラスより手前〜前面手前
+	const xin = LANE.beltHW, xout = LANE.beltHW + LANE.counterExtend;  // 0.4, 0.8
+	const barMesh = boxMesh("カウンター", xout - xin, LANE.counterTopY - LANE.counterBotY, cz1 - cz0, [0.55, 0.38, 0.22]);
+	const cMidY = (LANE.counterTopY + LANE.counterBotY) / 2, cMidZ = (cz0 + cz1) / 2;
+	const propOff = LANE.beltHW + LANE.counterExtend * 0.5;      // 0.6
+	for (const side of [-1, 1]) {
+		inst.push({ model: barMesh, o: [side * (hx + (xin + xout) / 2), cMidY, cMidZ] });
+		const px = side * (hx + propOff);
+		for (let i = 0; i < 7; i++) {                            // 湯呑み/醤油差し交互 7 個
+			const z = cz0 + (cz1 - cz0) * (i + 0.5) / 7;
+			const isCup = i % 2 === 0;
+			push(propInst(isCup ? "湯呑み" : "醤油差し", px, LANE.counterTopY, z, isCup ? 0.22 : 0.26));
+		}
+		for (const f of [0.33, 0.78])                           // ガリ皿 2 枚
+			push(propInst("ガリ皿", px, LANE.counterTopY, cz0 + (cz1 - cz0) * f, 0.32));
+	}
+	// 1 人用カウンター席の客 (壁辺・ベルトの向こうを向く)。位置はゲームと同じ _serp_stands。
+	for (const s of serpStands()) seat(s[0], s[1], s[0] > 0 ? -Math.PI / 2 : Math.PI / 2);
+
+	// お会計 (レジ + 店員) を前面右隅へ
+	push(groundInst(DATA.models.findIndex(m => m.key === "register"), hx + 1.5, FLOOR, zf - 0.5, 0.7, -Math.PI / 2));
+	seat(hx + 1.5, zf - 1.1, Math.PI);
+
+	// 装飾プロップ (decor_layout.json の serp レイアウト) — 大型店専用・ループ店とは独立配置。
+	for (const d of DECOR) push(decorInst(d));
+}
+
+// =============================================================================
+//  ラスタライズ
+// =============================================================================
+
+// 三角形を Z バッファ付きでラスタライズ (フラットカラー)
+function rasterTri(x0, y0, z0, x1, y1, z1, x2, y2, z2, col) {
+	const minX = Math.max(0, Math.ceil(Math.min(x0, x1, x2)));
+	const maxX = Math.min(RES_W - 1, Math.floor(Math.max(x0, x1, x2)));
+	const minY = Math.max(0, Math.ceil(Math.min(y0, y1, y2)));
+	const maxY = Math.min(resH - 1, Math.floor(Math.max(y0, y1, y2)));
+	if (minX > maxX || minY > maxY) return;
+	const area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
+	if (area === 0) return;
+	const inv = 1 / area;
+	for (let y = minY; y <= maxY; y++) {
+		const rowOff = y * RES_W;
+		for (let x = minX; x <= maxX; x++) {
+			const w0 = ((x1 - x) * (y2 - y) - (x2 - x) * (y1 - y)) * inv;
+			if (w0 < 0) continue;
+			const w1 = ((x2 - x) * (y0 - y) - (x0 - x) * (y2 - y)) * inv;
+			if (w1 < 0) continue;
+			const w2 = 1 - w0 - w1;
+			if (w2 < 0) continue;
+			const z = w0 * z0 + w1 * z1 + w2 * z2;
+			const off = rowOff + x;
+			if (z > zbuf[off]) {
+				zbuf[off] = z;
+				px32[off] = col;
+			}
+		}
+	}
+}
+
+// テクスチャ付き三角形 (UV 最近傍サンプリング、正射影なので affine 補間で正確)
+function rasterTriTex(x0, y0, z0, u0, v0, x1, y1, z1, u1, v1, x2, y2, z2, u2, v2, tex, lit) {
+	const minX = Math.max(0, Math.ceil(Math.min(x0, x1, x2)));
+	const maxX = Math.min(RES_W - 1, Math.floor(Math.max(x0, x1, x2)));
+	const minY = Math.max(0, Math.ceil(Math.min(y0, y1, y2)));
+	const maxY = Math.min(resH - 1, Math.floor(Math.max(y0, y1, y2)));
+	if (minX > maxX || minY > maxY) return;
+	const area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
+	if (area === 0) return;
+	const inv = 1 / area;
+	for (let y = minY; y <= maxY; y++) {
+		const rowOff = y * RES_W;
+		for (let x = minX; x <= maxX; x++) {
+			const w0 = ((x1 - x) * (y2 - y) - (x2 - x) * (y1 - y)) * inv;
+			if (w0 < 0) continue;
+			const w1 = ((x2 - x) * (y0 - y) - (x0 - x) * (y2 - y)) * inv;
+			if (w1 < 0) continue;
+			const w2 = 1 - w0 - w1;
+			if (w2 < 0) continue;
+			const z = w0 * z0 + w1 * z1 + w2 * z2;
+			const off = rowOff + x;
+			if (z <= zbuf[off]) continue;
+			zbuf[off] = z;
+			let tx = (w0 * u0 + w1 * u1 + w2 * u2) * tex.w | 0;
+			let ty = (1 - (w0 * v0 + w1 * v1 + w2 * v2)) * tex.h | 0;
+			if (tx < 0) tx = 0; else if (tx >= tex.w) tx = tex.w - 1;
+			if (ty < 0) ty = 0; else if (ty >= tex.h) ty = tex.h - 1;
+			const t = tex.px[ty * tex.w + tx];
+			const r = Math.min(255, (t & 255) * lit | 0);
+			const g = Math.min(255, ((t >>> 8) & 255) * lit | 0);
+			const b = Math.min(255, ((t >>> 16) & 255) * lit | 0);
+			px32[off] = r | (g << 8) | (b << 16) | (255 << 24);
+		}
+	}
+}
+
+// 3D 直線 (Z テストのみ、zbuf には書かない = 後続のラインと干渉しない)。
+// bias は Z 比較の下駄 (正=面の上に乗せる、負=面に負ける)。
+function drawLine(x0, y0, z0, x1, y1, z1, col, bias) {
+	const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0), 1) | 0;
+	for (let i = 0; i <= steps; i++) {
+		const t = i / steps;
+		const x = Math.round(x0 + (x1 - x0) * t), y = Math.round(y0 + (y1 - y0) * t);
+		if (x < 0 || x >= RES_W || y < 0 || y >= resH) continue;
+		const z = z0 + (z1 - z0) * t + bias;
+		const off = y * RES_W + x;
+		if (z > zbuf[off]) px32[off] = col;
+	}
+}
+
+// 店内ビューのカメラフレーミング (中心 c と radius)。draw / ピック / ギズモで共有し
+// 投影を一致させる (これがズレると serp でギズモ・選択ピックが合わなくなる)。
+function sceneFraming() {
+	if (sceneForm === "serp")
+		return { c: [0, 0.2, (SERP.zBack + SERP.zFront) / 2], radius: Math.max(SERP.hx(), (SERP.zFront - SERP.zBack) / 2) + 1.4 };
+	return { c: [0, 0.2, 0], radius: LANE.hl + LANE.r + 0.2 };
+}
+
+// =============================================================================
+//  描画
+// =============================================================================
+
+function draw() {
+	resize();
+	if (!px32) return;  // resize がレイアウト未確定で初期化を見送った直後
+	px32.fill(BG);
+	zbuf.fill(-1e9);
+	if (!DATA) { ctx.putImageData(img, 0, 0); return; }
+
+	const inst = buildScene();
+	const b = sceneBounds(inst);
+	let c, radius;
+	if (viewMode === "scene") {
+		// 店内は部屋 bbox 全体だと引きすぎるので、ゲームカメラ風にレーン中心へフレーミング
+		const fr = sceneFraming(); c = fr.c; radius = fr.radius;
+	} else if (viewMode === "single") {
+		// カルーセルは各CGを共通サイズ・y=0中心へ正規化済み → カメラ固定 (中央を写し隣は端で見切れる)。
+		c = [0, 0, 0];
+		radius = CAROUSEL_R * 1.75;   // 少し引いて左右の前後ナビ矢印を画面内に収める
+	} else if (viewMode === "group") {
+		// 中央グループタイルを写す (左右の隣グループは端で薄く見切れる)。x=0 固定。
+		c = [0, _groupFrame.cy, _groupFrame.cz];
+		radius = _groupFrame.radius * 1.2 + 1.0;   // 前後ナビ矢印ぶんの余白を足す
+	} else {
+		c = [(b.lo[0] + b.hi[0]) / 2, (b.lo[1] + b.hi[1]) / 2, (b.lo[2] + b.hi[2]) / 2];
+		radius = Math.max(1e-6,
+			Math.hypot(b.hi[0] - b.lo[0], b.hi[1] - b.lo[1], b.hi[2] - b.lo[2]) / 2);
+	}
+
+	const cyw = Math.cos(yaw), syw = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+	const scale = Math.min(RES_W, resH) * 0.42 * zoom / radius;
+
+	// ライト方向 (ビュー空間、スライダで方位/高度を調整)
+	const az = chk("laz").value * Math.PI / 180, el = chk("lel").value * Math.PI / 180;
+	const L = [Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az)];
+
+	const proj = (wx, wy, wz) => {
+		const x0 = wx - c[0], y0 = wy - c[1], z0 = wz - c[2];
+		const x = x0 * cyw + z0 * syw, z = -x0 * syw + z0 * cyw;
+		return [x * scale + RES_W / 2, -(y0 * cp - z * sp) * scale + resH / 2, y0 * sp + z * cp];
+	};
+	lastProj = proj;   // gridPick (ホバー/クリック判定) とカメラを共有
+
+	// 一覧: ホバー中の個別モデル以外を減光 (グループ強調は廃止)。分類は隣グループ減光(it.dim)を使う。
+	const pidx = chk("plate").checked ? plateIndex() : -1;
+	const dimActive = viewMode === "grid" && hoverModelMi >= 0;
+
+	// ソリッドパス (インスタンスごとに投影 → ラスタライズ)
+	// インスタンス変換: スケール s → Y 回転 ry → 平行移動 o
+	const projected = [];
+	for (const it of inst) {
+		const m = it.model || DATA.models[it.mi];
+		const tex = it.model ? null : texes[it.mi];
+		// it.dim = 単体カルーセル/分類の隣グループの減光 (buildScene が設定)。
+		// hoverDim = 一覧/分類でホバー中以外を減光。両者を掛ける。
+		const hoverDim = (dimActive && it.mi != null && it.mi !== pidx && it.mi !== hoverModelMi) ? 0.28 : 1;
+		const dimF = (it.dim != null ? it.dim : 1) * hoverDim;
+		const s = it.s || 1, ry = it.ry || 0, rx = it.rx || 0;
+		const cr = Math.cos(ry), sr = Math.sin(ry), crx = Math.cos(rx), srx = Math.sin(rx);
+		const n = m.verts.length;
+		// 自転ピボット (bbox中心、未指定=原点)。Y回転(横)→X回転(縦)を中心まわりに適用 = 上下左右フリー回転。
+		const px = it.piv ? it.piv[0] : 0, py = it.piv ? it.piv[1] : 0, pz = it.piv ? it.piv[2] : 0;
+		const sx = new Float32Array(n), sy2 = new Float32Array(n), rz = new Float32Array(n);
+		for (let i = 0; i < n; i++) {
+			const v = m.verts[i];
+			const lx = v[0] - px, ly = v[1] - py, lz = v[2] - pz;
+			const x1 = lx * cr + lz * sr, z1 = -lx * sr + lz * cr;        // Y回転
+			const y2 = ly * crx - z1 * srx, z2 = ly * srx + z1 * crx;     // X回転
+			const p = proj(
+				(x1 + px) * s + it.o[0],
+				(y2 + py) * s + it.o[1],
+				(z2 + pz) * s + it.o[2]);
+			sx[i] = p[0]; sy2[i] = p[1]; rz[i] = p[2];
+		}
+		projected.push({ m, sx, sy2, rz });
+
+		for (let fi = 0; fi < m.faces.length; fi++) {
+			const f = m.faces[fi];
+			const a = f[0], bb = f[1], d = f[2], q = f[3];
+			// 天井カリング: 面の全頂点がローカル y ≥ cullY なら描画しない (水平な天井面だけ消える)。
+			if (it.cullY != null && m.verts[a][1] >= it.cullY && m.verts[bb][1] >= it.cullY && m.verts[d][1] >= it.cullY && (q < 0 || m.verts[q][1] >= it.cullY)) continue;
+			// Z バッファなので裏面カリング不要 — 両面描画にすると
+			// エッジすれすれの角度で出る 1px の隙間 (グレージングアーティファクト) が消える。
+			// ライティングはビュー空間法線で (裏面は法線を反転して両面ライティング)
+			let nx, ny, nz;
+			{
+				const m1x = m.verts[bb][0] - m.verts[a][0], m1y = m.verts[bb][1] - m.verts[a][1], m1z = m.verts[bb][2] - m.verts[a][2];
+				const m2x = m.verts[d][0] - m.verts[a][0], m2y = m.verts[d][1] - m.verts[a][1], m2z = m.verts[d][2] - m.verts[a][2];
+				const wx = m1y * m2z - m1z * m2y, wy = m1z * m2x - m1x * m2z, wz = m1x * m2y - m1y * m2x;
+				// モデル法線 → インスタンス Y回転 → X回転 → ビュー回転
+				const ix = wx * cr + wz * sr, iz0 = -wx * sr + wz * cr;          // Y
+				const iy = wy * crx - iz0 * srx, iz = wy * srx + iz0 * crx;      // X
+				const tx = ix * cyw + iz * syw, tz = -ix * syw + iz * cyw;
+				nx = tx; ny = iy * cp - tz * sp; nz = iy * sp + tz * cp;
+				const nl = Math.hypot(nx, ny, nz) || 1;
+				nx /= nl; ny /= nl; nz /= nl;
+				if (nz < 0) { nx = -nx; ny = -ny; nz = -nz; }
+			}
+			const lit = (0.45 + 0.55 * Math.max(nx * L[0] + ny * L[1] + nz * L[2], 0)) * dimF;
+
+			// テクスチャ面 (UV が揃っている時のみ)
+			const fu = (tex && m.fuv) ? m.fuv[fi] : null;
+			if (fu && fu[0] >= 0 && fu[1] >= 0 && fu[2] >= 0) {
+				const U = m.uvs;
+				rasterTriTex(
+					sx[a], sy2[a], rz[a], U[fu[0]][0], U[fu[0]][1],
+					sx[bb], sy2[bb], rz[bb], U[fu[1]][0], U[fu[1]][1],
+					sx[d], sy2[d], rz[d], U[fu[2]][0], U[fu[2]][1], tex, lit);
+				if (q >= 0 && fu[3] >= 0) {
+					rasterTriTex(
+						sx[a], sy2[a], rz[a], U[fu[0]][0], U[fu[0]][1],
+						sx[d], sy2[d], rz[d], U[fu[2]][0], U[fu[2]][1],
+						sx[q], sy2[q], rz[q], U[fu[3]][0], U[fu[3]][1], tex, lit);
+				}
+				continue;
+			}
+
+			const kd = m.mats[f[4]];
+			const r = Math.min(255, kd[0] * lit * 255 | 0);
+			const g = Math.min(255, kd[1] * lit * 255 | 0);
+			const bl = Math.min(255, kd[2] * lit * 255 | 0);
+			const col = r | (g << 8) | (bl << 16) | (255 << 24);
+			rasterTri(sx[a], sy2[a], rz[a], sx[bb], sy2[bb], rz[bb], sx[d], sy2[d], rz[d], col);
+			if (q >= 0) rasterTri(sx[a], sy2[a], rz[a], sx[d], sy2[d], rz[d], sx[q], sy2[q], rz[q], col);
+		}
+	}
+
+	// グリッド + 原点軸。1 マス = 1 ブロック (= レーン幅 beltHW*2 = 0.8) でサイズをブロック単位で測れる。
+	// 店内は床面のすぐ上に重ねて (正バイアスで床に勝たせる) レイアウトを測れるように、CG はモデル底面に敷く。
+	if (chk("grid").checked) {
+		const U = LANE.beltHW * 2;                       // 1 ブロック = レーン幅 (0.8)
+		const inScene = viewMode === "scene";
+		// 店内=床面の少し上 / CG=シーン下端 (モデル底面)
+		const gy = inScene ? -0.38 : b.lo[1] - 0.001;
+		const bias = inScene ? radius * 0.003 : -radius * 0.004;
+		const G = Math.max(1, Math.ceil(radius / U));    // 視野を覆うブロック数
+		const ext = G * U;
+		for (let k = -G; k <= G; k++) {                  // 線間隔 = 1 ブロック
+			const i = k * U;
+			const col = (k % 5 === 0) ? COL_GRID_MAJOR : COL_GRID_MINOR;   // 5 ブロックごとに主線
+			line3(proj, i, gy, -ext, i, gy, ext, col, bias);
+			line3(proj, -ext, gy, i, ext, gy, i, col, bias);
+		}
+		const ab = inScene ? radius * 0.004 : -radius * 0.002;
+		line3(proj, -ext, gy, 0, ext, gy, 0, COL_AXIS_X, ab);
+		line3(proj, 0, gy, -ext, 0, gy, ext, COL_AXIS_Z, ab);
+		line3(proj, 0, gy, 0, 0, gy + ext, 0, COL_AXIS_Y, ab);
+	}
+
+	// ワイヤーフレーム (面の輪郭のみ、対角線は引かない)
+	if (chk("wire").checked) {
+		const bias = radius * 0.006;
+		for (const pr of projected) {
+			for (const f of pr.m.faces) {
+				const e = f[3] >= 0 ? [f[0], f[1], f[2], f[3]] : [f[0], f[1], f[2]];
+				for (let i = 0; i < e.length; i++) {
+					const a = e[i], bb = e[(i + 1) % e.length];
+					drawLine(pr.sx[a], pr.sy2[a], pr.rz[a], pr.sx[bb], pr.sy2[bb], pr.rz[bb], COL_WIRE, bias);
+				}
+			}
+		}
+	}
+
+	// バウンディングボックス (single モードのみ、皿は含めない)
+	if (chk("dims").checked && viewMode === "single") {
+		const bb = bboxes[cur], pl = carouselPlace(cur, carouselOffset());   // カルーセル変換に合わせる
+		const bias = radius * 0.004;
+		const tf = v => [v[0] * pl.s + pl.o[0], v[1] * pl.s + pl.o[1], v[2] * pl.s + pl.o[2]];
+		for (const [p, q] of bboxEdges(bb.lo, bb.hi)) {
+			const a = tf(p), b2 = tf(q);
+			line3(proj, a[0], a[1], a[2], b2[0], b2[1], b2[2], COL_BBOX, bias);
+		}
+	}
+
+	// 装飾エディタ: 選択中の装飾を強調 (脈動ボックス) + XYZ 移動ギズモ (軸矢印を掴んで移動)
+	if (viewMode === "scene" && editMode && selDecor >= 0 && selDecor < DECOR.length) {
+		const it = decorInst(DECOR[selDecor]);
+		if (it) {
+			const b = bboxes[it.mi], s = it.s, cr = Math.cos(it.ry), sr = Math.sin(it.ry), o = it.o;
+			const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.006);
+			const m = (0.05 + 0.05 * pulse) / s;  // モデル空間マージン (脈動)
+			const tp = (vx, vy, vz) => proj((vx * cr + vz * sr) * s + o[0], vy * s + o[1], (-vx * sr + vz * cr) * s + o[2]);
+			for (const [A, B] of bboxEdges([b.lo[0] - m, b.lo[1] - m, b.lo[2] - m], [b.hi[0] + m, b.hi[1] + m, b.hi[2] + m])) {
+				const p = tp(A[0], A[1], A[2]), q = tp(B[0], B[1], B[2]);
+				drawLine(p[0], p[1], p[2], q[0], q[1], q[2], COL_SEL, 9e-3);
+			}
+			drawGizmo(proj);  // X=赤 / Y=緑 / Z=青 の移動矢印 (最前面)
+		}
+	}
+
+	ctx.putImageData(img, 0, 0);
+
+	// 寸法テキストオーバーレイ (ピクセルバッファ外の 2D 描画)
+	if (chk("dims").checked && viewMode === "single") {
+		const bb = bboxes[cur], lo = bb.lo, hi = bb.hi;
+		ctx.fillStyle = "#ffd54a";
+		ctx.font = "15px ui-monospace, Menlo, monospace";
+		ctx.fillText(
+			"W " + (hi[0] - lo[0]).toFixed(3) + "  H " + (hi[1] - lo[1]).toFixed(3) + "  D " + (hi[2] - lo[2]).toFixed(3), 8, 20);
+		ctx.fillText(
+			"x " + lo[0] + " … " + hi[0] + " / y " + lo[1] + " … " + hi[1] + " / z " + lo[2] + " … " + hi[2], 8, 40);
+	}
+}
+
+function line3(proj, ax, ay, az, bx, by, bz, col, bias) {
+	const p = proj(ax, ay, az), q = proj(bx, by, bz);
+	drawLine(p[0], p[1], p[2], q[0], q[1], q[2], col, bias);
+}
+
+function bboxEdges(lo, hi) {
+	const c = [
+		[lo[0], lo[1], lo[2]], [hi[0], lo[1], lo[2]], [hi[0], lo[1], hi[2]], [lo[0], lo[1], hi[2]],
+		[lo[0], hi[1], lo[2]], [hi[0], hi[1], lo[2]], [hi[0], hi[1], hi[2]], [lo[0], hi[1], hi[2]],
+	];
+	return [
+		[c[0], c[1]], [c[1], c[2]], [c[2], c[3]], [c[3], c[0]],
+		[c[4], c[5]], [c[5], c[6]], [c[6], c[7]], [c[7], c[4]],
+		[c[0], c[4]], [c[1], c[5]], [c[2], c[6]], [c[3], c[7]],
+	];
+}
+
+// =============================================================================
+//  装飾配置エディタ
+// =============================================================================
+
+// 店内モードの投影 (draw と同じフレーミング)。ピック/ギズモ用。
+function sceneProj() {
+	const { c, radius } = sceneFraming();
+	const cyw = Math.cos(yaw), syw = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+	const scale = Math.min(RES_W, resH) * 0.42 * zoom / radius;
+	const proj = (wx, wy, wz) => {
+		const x0 = wx - c[0], y0 = wy - c[1], z0 = wz - c[2];
+		const x = x0 * cyw + z0 * syw, z = -x0 * syw + z0 * cyw;
+		return [x * scale + RES_W / 2, -(y0 * cp - z * sp) * scale + resH / 2];
+	};
+	return { scale, cyw, syw, sp, proj };
+}
+
+function clientToInternal(cx, cy) {
+	const r = cv.getBoundingClientRect();
+	return [(cx - r.left) / r.width * RES_W, (cy - r.top) / r.height * resH, RES_W / r.width, resH / r.height];
+}
+
+// クリック位置に最も近い装飾アンカーの index (なければ -1)
+function pickDecor(cx, cy) {
+	if (!DATA || !DECOR.length) return -1;
+	const [ix, iy] = clientToInternal(cx, cy);
+	const sp = sceneProj();
+	let best = -1, bestD = 42 * 42;
+	for (let i = 0; i < DECOR.length; i++) {
+		const d = DECOR[i], p = sp.proj(d.x || 0, d.y || 0, d.z || 0);
+		const dd = (p[0] - ix) ** 2 + (p[1] - iy) ** 2;
+		if (dd < bestD) { bestD = dd; best = i; }
+	}
+	return best;
+}
+
+// 画面 (dSX,dSY) 移動量 -> 地面 (XZ) 移動量。sceneProj の 2x2 [[a,b],[c,d]] を反転。
+function screenToWorldXZ(dSX, dSY) {
+	const { scale, cyw, syw, sp } = sceneProj();
+	const a = scale * cyw, b = scale * syw, c = -scale * sp * syw, e = scale * sp * cyw;
+	const det = a * e - b * c;
+	if (Math.abs(det) < 1e-6) return [0, 0];
+	return [(e * dSX - b * dSY) / det, (-c * dSX + a * dSY) / det];
+}
+
+// ── XYZ 移動ギズモ (Blender 等でおなじみの軸矢印を掴んで移動) ──────────────
+// 自由ドラッグ移動は誤操作しやすいので廃止。選択 → 軸矢印を掴んでその軸だけ移動。
+const GIZMO_AXES = [[1, 0, 0, "x", COL_AXIS_X], [0, 1, 0, "y", COL_AXIS_Y], [0, 0, 1, "z", COL_AXIS_Z]];
+
+// 選択中装飾の中心 (ワールド) と軸長 (画面上で約80px相当)。
+function gizmoGeom() {
+	if (selDecor < 0 || selDecor >= DECOR.length) return null;
+	const it = decorInst(DECOR[selDecor]); if (!it) return null;
+	const b = bboxes[it.mi], s = it.s, cr = Math.cos(it.ry), sr = Math.sin(it.ry);
+	const cm = [(b.lo[0] + b.hi[0]) / 2, (b.lo[1] + b.hi[1]) / 2, (b.lo[2] + b.hi[2]) / 2];
+	const o = [
+		it.o[0] + (cm[0] * cr + cm[2] * sr) * s,
+		it.o[1] + cm[1] * s,
+		it.o[2] + (-cm[0] * sr + cm[2] * cr) * s,
+	];
+	const { radius } = sceneFraming();
+	const scale = Math.min(RES_W, resH) * 0.42 * zoom / radius;
+	return { o, len: 80 / scale };
+}
+
+// 画面に太線を最前面で描く (z 無視)。ギズモの軸矢印用。
+function gizmoLine2(p0, p1, col, w) {
+	const dx = p1[0] - p0[0], dy = p1[1] - p0[1];
+	const len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len;
+	const steps = Math.max(Math.abs(dx), Math.abs(dy), 1) | 0;
+	for (let i = 0; i <= steps; i++) {
+		const t = i / steps, bx = p0[0] + dx * t, by = p0[1] + dy * t;
+		for (let o = -w; o <= w; o++) {
+			const x = Math.round(bx + nx * o), y = Math.round(by + ny * o);
+			if (x < 0 || x >= RES_W || y < 0 || y >= resH) continue;
+			px32[y * RES_W + x] = col;
+		}
+	}
+}
+
+// 選択中装飾に XYZ 軸矢印を描く (掴んでいる軸は太く)。
+function drawGizmo(proj) {
+	const g = gizmoGeom(); if (!g) return;
+	const pO = proj(g.o[0], g.o[1], g.o[2]);
+	for (const [ax, ay, az, name, col] of GIZMO_AXES) {
+		const pE = proj(g.o[0] + ax * g.len, g.o[1] + ay * g.len, g.o[2] + az * g.len);
+		const w = gizmoAxis === name ? 3 : 2;
+		gizmoLine2(pO, pE, col, w);
+		let dx = pE[0] - pO[0], dy = pE[1] - pO[1]; const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l;
+		const ah = 9, hw = 4.5;  // 矢じり (画面空間)
+		gizmoLine2(pE, [pE[0] - dx * ah - dy * hw, pE[1] - dy * ah + dx * hw], col, w);
+		gizmoLine2(pE, [pE[0] - dx * ah + dy * hw, pE[1] - dy * ah - dx * hw], col, w);
+	}
+}
+
+// 2D 点と線分の距離 (軸ピック用)。
+function distToSeg(px, py, ax, ay, bx, by) {
+	const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+	let t = l2 ? ((px - ax) * dx + (py - ay) * dy) / l2 : 0;
+	t = Math.max(0, Math.min(1, t));
+	return Math.hypot(px - (ax + dx * t), py - (ay + dy * t));
+}
+
+// クリックが掴んでいるギズモ軸 ("x"/"y"/"z") を返す (なければ null)。
+function pickGizmoAxis(cx, cy) {
+	const g = gizmoGeom(); if (!g) return null;
+	const [ix, iy] = clientToInternal(cx, cy);
+	const sp = sceneProj();
+	const pO = sp.proj(g.o[0], g.o[1], g.o[2]);
+	let best = null, bestD = 13;
+	for (const [ax, ay, az, name] of GIZMO_AXES) {
+		const pE = sp.proj(g.o[0] + ax * g.len, g.o[1] + ay * g.len, g.o[2] + az * g.len);
+		const d = distToSeg(ix, iy, pO[0], pO[1], pE[0], pE[1]);
+		if (d < bestD) { bestD = d; best = name; }
+	}
+	return best;
+}
+
+// 画面ドラッグを「掴んでいる軸方向」のワールド移動へ変換 (他の軸は動かさない)。
+function dragGizmo(cx, cy) {
+	if (!gizmoAxis || selDecor < 0) return;
+	const g = gizmoGeom(); if (!g) return;
+	const sp = sceneProj();
+	const v = gizmoAxis === "x" ? [1, 0, 0] : gizmoAxis === "y" ? [0, 1, 0] : [0, 0, 1];
+	const pO = sp.proj(g.o[0], g.o[1], g.o[2]);
+	const pA = sp.proj(g.o[0] + v[0], g.o[1] + v[1], g.o[2] + v[2]);  // +1 ワールド単位の画面ベクトル
+	const sx = pA[0] - pO[0], sy = pA[1] - pO[1];
+	const denom = sx * sx + sy * sy; if (denom < 1e-6) return;
+	const [, , fx, fy] = clientToInternal(cx, cy);
+	const dSX = (cx - lastX) * fx, dSY = (cy - lastY) * fy;
+	const wd = (dSX * sx + dSY * sy) / denom;  // 画面ドラッグ量 → 軸方向のワールド移動量
+	const d = DECOR[selDecor];
+	if (gizmoAxis === "x") d.x = +((d.x || 0) + wd).toFixed(3);
+	else if (gizmoAxis === "y") d.y = +((d.y || 0) + wd).toFixed(3);
+	else d.z = +((d.z || 0) + wd).toFixed(3);
+	fillFields(); markDirty();
+}
+
+// 矢印キー: 画面に対して上下左右へ step ユニット動かす (カメラ相対)
+function nudgeSelected(dirX, dirY, step) {
+	if (selDecor < 0) return;
+	const right = screenToWorldXZ(1, 0), down = screenToWorldXZ(0, 1);
+	const rl = Math.hypot(right[0], right[1]) || 1, dl = Math.hypot(down[0], down[1]) || 1;
+	const d = DECOR[selDecor];
+	d.x = +((d.x || 0) + (right[0] / rl * dirX + down[0] / dl * dirY) * step).toFixed(3);
+	d.z = +((d.z || 0) + (right[1] / rl * dirX + down[1] / dl * dirY) * step).toFixed(3);
+}
+
+// 矢印キーで移動 / Shift+矢印で高さ
+window.addEventListener("keydown", e => {
+	if (!editMode || viewMode !== "scene" || selDecor < 0) return;
+	if (document.activeElement && document.activeElement.tagName === "INPUT") return;  // 数値入力中は無視
+	if (!e.key.startsWith("Arrow")) return;
+	const now = performance.now();                       // 連続押しは 1 undo ステップに合体
+	if (now - _lastNudge > 500) pushHistory();
+	_lastNudge = now;
+	const d = DECOR[selDecor], step = 0.04, hstep = 0.04;
+	let handled = true;
+	if (e.shiftKey) {
+		if (e.key === "ArrowUp" || e.key === "ArrowRight") d.y = +((d.y || 0) + hstep).toFixed(3);
+		else if (e.key === "ArrowDown" || e.key === "ArrowLeft") d.y = +((d.y || 0) - hstep).toFixed(3);
+		else handled = false;
+	} else {
+		if (e.key === "ArrowLeft") nudgeSelected(-1, 0, step);
+		else if (e.key === "ArrowRight") nudgeSelected(1, 0, step);
+		else if (e.key === "ArrowUp") nudgeSelected(0, -1, step);
+		else if (e.key === "ArrowDown") nudgeSelected(0, 1, step);
+		else handled = false;
+	}
+	if (handled) { e.preventDefault(); fillFields(); markDirty(); }
+});
+
+function keyName(key) { const m = DATA && DATA.models.find(x => x.key === key); return m ? m.name : key; }
+function markDirty() { dirty = true; setEditStatus("● 未保存", "unsaved"); }
+
+function selectDecor(i) { selDecor = i; refreshDecorList(); fillFields(); }
+
+function refreshDecorList() {
+	const list = chk("elist"); if (!list) return;
+	list.innerHTML = "";
+	DECOR.forEach((d, i) => {
+		const row = document.createElement("div");
+		row.className = "eitem" + (i === selDecor ? " sel" : "");
+		row.innerHTML = "<span>" + (i + 1) + ". " + keyName(d.key) + "</span><span>" + (d.hang ? "吊" : "") + "</span>";
+		row.onclick = () => selectDecor(i);
+		list.appendChild(row);
+	});
+	chk("efields").style.display = (selDecor >= 0 && selDecor < DECOR.length) ? "block" : "none";
+}
+
+function fillFields() {
+	const valid = selDecor >= 0 && selDecor < DECOR.length;
+	chk("efields").style.display = valid ? "block" : "none";
+	show("insp-empty", !valid);   // 未選択時はプレースホルダ
+	if (!valid) return;
+	const d = DECOR[selDecor];
+	chk("ex").value = d.x || 0; chk("ez").value = d.z || 0; chk("ey").value = d.y || 0;
+	chk("erot").value = d.rot || 0; chk("esize").value = d.size || 0.3; chk("ehang").checked = !!d.hang;
+}
+
+function readFields() {
+	if (selDecor < 0) return;
+	const d = DECOR[selDecor];
+	d.x = +chk("ex").value || 0; d.z = +chk("ez").value || 0; d.y = +chk("ey").value || 0;
+	d.rot = +chk("erot").value || 0; d.size = +chk("esize").value || 0.3; d.hang = chk("ehang").checked;
+	markDirty();
+}
+
+function populateAddOptions() {
+	const sel = chk("eadd"); if (!sel || !DATA) return;
+	const prev = sel.value; sel.innerHTML = "";
+	DATA.models.filter(m => m.cat === "prop").forEach(m => {
+		const o = document.createElement("option"); o.value = m.key; o.textContent = m.name; sel.appendChild(o);
+	});
+	if (prev) sel.value = prev;
+}
+
+function addDecor() {
+	const sel = chk("eadd"); if (!sel || !sel.value) return;
+	pushHistory();
+	DECOR.push({ key: sel.value, x: 0, y: 0, z: +(LANE.r).toFixed(2), size: 0.3, rot: 0, hang: false });
+	selectDecor(DECOR.length - 1); markDirty();
+}
+
+function deleteDecor() { if (selDecor < 0) return; pushHistory(); DECOR.splice(selDecor, 1); selDecor = -1; refreshDecorList(); markDirty(); }
+
+// ゲーム(decor_layout.json)へ書き込む唯一の経路。loop/serp 両レイアウトを書く。成功で dirty=false。
+async function saveDecor() {
+	const clean = arr => arr.map(d => ({
+		key: d.key, x: +(d.x || 0), y: +(d.y || 0), z: +(d.z || 0),
+		size: +(d.size || 0.3), rot: +(d.rot || 0), hang: !!d.hang }));
+	try {
+		const body = JSON.stringify({ loop: clean(DECOR_ALL.loop), serp: clean(DECOR_ALL.serp) });
+		const r = await fetch("save-layout", { method: "POST", headers: { "Content-Type": "application/json" }, body });
+		const j = await r.json();
+		if (!j.ok) throw new Error(j.error || "失敗");
+		dirty = false; setEditStatus("✓ 保存しました (" + j.count + "個)", "saved");
+		return true;
+	} catch (e) { setEditStatus("⚠ 保存失敗 (serve.py 要起動)", "unsaved"); return false; }
+}
+
+async function loadDecor() {
+	try {
+		const r = await fetch("decor_layout.json?t=" + Date.now());
+		const j = await r.json();
+		if (Array.isArray(j.loop) || Array.isArray(j.serp)) {              // 新フォーマット (フォーム別)
+			DECOR_ALL = { loop: (j.loop || []).map(d => ({ ...d })), serp: (j.serp || []).map(d => ({ ...d })) };
+		} else {                                                          // 旧フォーマット (decorations + loop_only) から移行
+			const all = (j.decorations || []).map(({ loop_only, ...d }) => d);
+			const allRaw = (j.decorations || []);
+			DECOR_ALL = { loop: all.map(d => ({ ...d })), serp: allRaw.filter(d => !d.loop_only).map(({ loop_only, ...d }) => d) };
+		}
+	} catch (e) { /* 旧 http.server だと 404 → 空のまま */ }
+	useFormDecor();
+	decorLoaded = true; dirty = false;
+}
+
+// ── 要修正チェック (data/fixlist.json、key 単位) ──
+function fixKeyOf(i) { return DATA.models[i].key || DATA.models[i].name; }
+async function loadFixlist() {
+	try { const r = await fetch("fixlist.json?t=" + Date.now()); fixSet = new Set((await r.json()).fix || []); }
+	catch (e) { /* 404 等は空 */ }
+	fixLoaded = true;
+}
+async function saveFixlist() {
+	try {
+		const r = await fetch("save-fixlist", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fix: [...fixSet] }) });
+		if (!(await r.json()).ok) throw 0;
+		setFixStatus("✓ 保存");
+	} catch (e) { setFixStatus("⚠ 保存失敗(serve.py)"); }
+}
+function toggleFix(key) { fixSet.has(key) ? fixSet.delete(key) : fixSet.add(key); saveFixlist(); if (fixFilter && !fixSet.size) fixFilter = false; refreshUI(); }
+function copyFixlist() {
+	const names = DATA.models.filter(m => fixSet.has(m.key || m.name)).map(m => m.name + " (" + (m.key || "") + ")").join("\n");
+	navigator.clipboard.writeText(names).then(() => setFixStatus("✓ コピー (" + fixSet.size + "件)"), () => setFixStatus("⚠ コピー失敗"));
+}
+function setFixStatus(t) { const s = document.querySelector("#modellist .fixbar .fixstat"); if (s) s.textContent = t; }
+
+// ── CG グッド/バッド評価 (data/cg_feedback.json、key 単位。Claude の CG 作成フィードバック源) ──
+function fbVerdictOf(key) { return fbGood.has(key) ? "good" : fbBad.has(key) ? "bad" : null; }
+function fbNoteOf(key) { return fbGood.has(key) ? fbGood.get(key) : fbBad.has(key) ? fbBad.get(key) : ""; }
+async function loadFeedback() {
+	try {
+		const r = await fetch("cg_feedback.json?t=" + Date.now()); const d = await r.json();
+		fbGood = new Map(Object.entries(d.good || {})); fbBad = new Map(Object.entries(d.bad || {}));
+	} catch (e) { /* 404 等は空 */ }
+	fbLoaded = true;
+}
+async function saveFeedback() {
+	try {
+		const body = JSON.stringify({ good: Object.fromEntries(fbGood), bad: Object.fromEntries(fbBad) });
+		const r = await fetch("save-feedback", { method: "POST", headers: { "Content-Type": "application/json" }, body });
+		if (!(await r.json()).ok) throw 0;
+		setFbStatus("✓ 保存");
+	} catch (e) { setFbStatus("⚠ 保存失敗(serve.py)"); }
+}
+function setFb(key, verdict) {   // 👍/👎 トグル: 同じを再クリックで解除、違うなら付け替え (メモは引き継ぐ)
+	const cur = fbVerdictOf(key), note = fbNoteOf(key);
+	fbGood.delete(key); fbBad.delete(key);
+	if (cur !== verdict) (verdict === "good" ? fbGood : fbBad).set(key, note);
+	saveFeedback(); refreshUI();
+}
+function setFbNote(key, note) {  // 理由メモの更新 (評価済みのときのみ保持)
+	if (fbGood.has(key)) fbGood.set(key, note);
+	else if (fbBad.has(key)) fbBad.set(key, note);
+	else return;
+	saveFeedback();
+}
+function copyFeedback() {        // Claude に貼れる整形テキストでコピー
+	const fmt = m => [...m].map(([k, v]) => "- " + keyName(k) + " (" + k + ")" + (v ? ": " + v : "")).join("\n");
+	const txt = "👍 良い (" + fbGood.size + ")\n" + fmt(fbGood) + "\n\n👎 悪い (" + fbBad.size + ")\n" + fmt(fbBad);
+	navigator.clipboard.writeText(txt).then(() => setFbStatus("✓ コピー"), () => setFbStatus("⚠ コピー失敗"));
+}
+function setFbStatus(t) { const s = document.querySelector("#modellist .fbbar .fbstat"); if (s) s.textContent = t; }
+
+// ── 横断タグ (自動: models.json の m.tags / 手動: data/cg_tags.json、key 単位で合算) ──
+function autoTagsOf(i) { return DATA.models[i].tags || []; }
+function manTagsOf(key) { return tagMan.get(key) || []; }
+function effTags(i) { return [...new Set([...autoTagsOf(i), ...manTagsOf(fixKeyOf(i))])]; }
+function allTagsWithCounts() {   // 全モデルの実効タグ → [tag, 件数] (件数多い順、同数は名前順)
+	const c = new Map();
+	DATA.models.forEach((m, i) => { if (m.cat === "bg") return; for (const t of effTags(i)) c.set(t, (c.get(t) || 0) + 1); });
+	return [...c.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ja"));
+}
+async function loadTags() {
+	try { const r = await fetch("cg_tags.json?t=" + Date.now()); tagMan = new Map(Object.entries((await r.json()).tags || {})); }
+	catch (e) { /* 404 等は空 */ }
+	tagLoaded = true;
+}
+async function saveTags() {
+	if (VIEW_ONLY) return;
+	try {
+		const obj = {}; for (const [k, v] of tagMan) if (v.length) obj[k] = v;
+		const r = await fetch("save-tags", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tags: obj }) });
+		if (!(await r.json()).ok) throw 0;
+	} catch (e) { /* serve.py 無しでは保存不可 (公開版) */ }
+}
+function addTag(key, t) {        // 手動タグ追加 (自動タグと同名・既存はスキップ)
+	t = (t || "").trim(); if (!t) return;
+	const mi = DATA.models.findIndex(m => (m.key || m.name) === key);
+	if (mi >= 0 && autoTagsOf(mi).includes(t)) return;
+	const cur = tagMan.get(key) || [];
+	if (cur.includes(t)) return;
+	tagMan.set(key, [...cur, t]); saveTags(); refreshUI();
+}
+function removeTag(key, t) {     // 手動タグのみ削除可 (自動タグは models.json 由来で消せない)
+	const cur = tagMan.get(key) || []; if (!cur.includes(t)) return;
+	const next = cur.filter(x => x !== t);
+	next.length ? tagMan.set(key, next) : tagMan.delete(key);
+	saveTags(); refreshUI();
+}
+function setTagFilter(t) {       // タグ絞り込みのトグル (同じタグ再クリックで解除)
+	tagFilter = (tagFilter === t) ? null : t;
+	fixFilter = false;            // 要修正絞り込みとは排他
+	if (tagFilter) goGrid(); else refreshUI();
+}
+
+// 数値フィールドの編集セッションを 1 undo ステップに: フォーカスで前状態を控え、初回 input で確定。
+function fieldFocus() { _fieldSnap = snapshotDecor(); }
+function fieldInput() {
+	if (_fieldSnap) { undoStack.push(_fieldSnap); if (undoStack.length > 100) undoStack.shift(); redoStack.length = 0; _fieldSnap = null; updateUndoButtons(); }
+	readFields();
+}
+
+(function wireEditor() {
+	const on = (id, ev, fn) => { const el = chk(id); if (el) el.addEventListener(ev, fn); };
+	on("eaddbtn", "click", addDecor);
+	on("edel", "click", deleteDecor);
+	on("esave", "click", saveDecor);
+	for (const id of ["ex", "ez", "ey", "erot", "esize", "ehang"]) { on(id, "focus", fieldFocus); on(id, "input", fieldInput); }
+	on("search", "input", () => { if (viewMode !== "scene") buildModelList(); });
+	// 店内の編集ボタン (編集/undo/redo/保存/終了) は #editbar に動的生成し、その場で配線する。
+})();
+
+let lastT = performance.now();
+
+function loop() {
+	const now = performance.now();
+	const dt = Math.min(0.05, (now - lastT) / 1000);
+	lastT = now;
+	if (chk("auto").checked && !dragging) {
+		if (viewMode === "single" || viewMode === "group") spin += 0.01;   // 対象だけ自転 (カメラ固定)
+		else yaw += 0.008;                                                 // 店内/一覧はカメラ周回
+	}
+	if (slide) {                                  // 単体カルーセル遷移 (1フェーズ: 隣を中央へ流す)
+		slide.t += dt / SLIDE_DUR;
+		if (slide.t >= 1) { cur = slide.toMi; slide = null; afterSingleChange(); }
+	}
+	if (viewMode === "scene") {
+		// ゲームと同じレーン進行 (0.10 周/s) + 皿の自転 (-1.5 rad/s)。
+		// 蛇行は周長が長いぶん割合速度を下げ、通常店と同じ流速に揃える。
+		const frac = (sceneForm === "serp" && _serpLen > 0)
+			? LANE.speed * (LOOP_LEN / _serpLen) : LANE.speed;
+		laneOffset = (laneOffset + frac * dt) % 1;
+		laneSpin -= LANE.spinSpeed * dt;
+	}
+	draw();
+	requestAnimationFrame(loop);
+}
+
+// 1 本指 (マウス) = 回転 / 2 本指 = ピンチズーム (スマホ対応)
+const pointers = new Map();
+let pinchDist = 0;
+
+cv.addEventListener("pointerdown", e => {
+	pointers.set(e.pointerId, [e.clientX, e.clientY]);
+	cv.setPointerCapture(e.pointerId);
+	// 装飾配置モード: ①選択中オブジェクトの移動ギズモの軸を掴めるか → その軸だけ移動
+	//                 ②オブジェクト本体クリック → 選択のみ (自由ドラッグは廃止=誤操作防止)
+	//                 ③何もなければ素通り → カメラ回転
+	if (editMode && viewMode === "scene" && pointers.size === 1) {
+		const axis = pickGizmoAxis(e.clientX, e.clientY);
+		if (axis) {
+			pushHistory();                 // ドラッグ1回 = 1 undo ステップ
+			gizmoAxis = axis; dragging = false;
+			lastX = e.clientX; lastY = e.clientY; cv.style.cursor = "grabbing";
+			return;
+		}
+		const hit = pickDecor(e.clientX, e.clientY);
+		if (hit >= 0) {
+			selectDecor(hit); dragging = false; cv.style.cursor = "default";
+			return;
+		}
+	}
+	// CG閲覧: タップで遷移 (一覧/分類=モデルへ / 単体=左右クリックで前/次)。動かせば回転。確定は pointerup。
+	if (!editMode && (viewMode === "grid" || viewMode === "group" || viewMode === "single") && pointers.size === 1) {
+		_tapMi = (viewMode === "single") ? -1 : gridPick(e.clientX, e.clientY);
+		_downXY = [e.clientX, e.clientY]; _movedFar = false;
+	}
+	if (pointers.size === 1) {
+		dragging = true; lastX = e.clientX; lastY = e.clientY;
+		cv.style.cursor = "grabbing";
+	} else if (pointers.size === 2) {
+		dragging = false;
+		const p = [...pointers.values()];
+		pinchDist = Math.hypot(p[0][0] - p[1][0], p[0][1] - p[1][1]);
+	}
+});
+cv.addEventListener("pointermove", e => {
+	if (pointers.has(e.pointerId)) pointers.set(e.pointerId, [e.clientX, e.clientY]);
+	if (_downXY && (Math.abs(e.clientX - _downXY[0]) + Math.abs(e.clientY - _downXY[1]) > 6)) _movedFar = true;
+	if (gizmoAxis) { dragGizmo(e.clientX, e.clientY); lastX = e.clientX; lastY = e.clientY; return; }
+	if (pointers.size === 2) {
+		const p = [...pointers.values()];
+		const d = Math.hypot(p[0][0] - p[1][0], p[0][1] - p[1][1]);
+		if (pinchDist > 0) zoom = Math.max(0.3, Math.min(4, zoom * d / pinchDist));
+		pinchDist = d;
+		return;
+	}
+	// CG閲覧のホバー強調 (ボタン非押下時): 一覧/分類とも個別モデルを強調 (他を減光)。
+	if (!dragging && !editMode && (viewMode === "grid" || viewMode === "group")) {
+		hoverModelMi = gridPick(e.clientX, e.clientY);
+	}
+	if (!dragging) return;
+	// マウスで視点を動かしたら自動回転は OFF にする (チップは CSS で自動反映)
+	const _a = chk("auto");
+	if (_a && _a.checked) _a.checked = false;
+	if (viewMode === "single" || viewMode === "group") {
+		spin += (e.clientX - lastX) * 0.01;    // 横ドラッグ = 対象だけ左右回転
+		spinX += (e.clientY - lastY) * 0.01;   // 縦ドラッグ = 対象だけ上下回転 (カメラ固定=隣・矢印は静止)
+	} else {
+		yaw += (e.clientX - lastX) * 0.01;
+		pitch = Math.max(-1.5, Math.min(1.5, pitch + (e.clientY - lastY) * 0.01));
+	}
+	lastX = e.clientX; lastY = e.clientY;
+});
+function _endPointer(e) {
+	// CG閲覧: ほぼ動かさず離した = タップ。
+	if (_downXY && !_movedFar && !editMode) {
+		let handled = false;
+		// 黄色い前後ナビ矢印のクリック判定 (単体/分類)。投影位置の近傍をヒットとする。
+		if (_arrowWorld && lastProj && (viewMode === "single" || viewMode === "group")) {
+			const [ix, iy] = clientToInternal(e.clientX, e.clientY);
+			for (const a of _arrowWorld) {
+				const p = lastProj(a.x, a.y, a.z);
+				if ((p[0] - ix) ** 2 + (p[1] - iy) ** 2 < 80 * 80) { a.act(); handled = true; break; }
+			}
+		}
+		if (!handled) {
+			if (viewMode === "single") {                       // 単体: 左半分=前 / 右半分=次 (薄いCGをクリック)
+				const rect = cv.getBoundingClientRect();
+				const fx = (e.clientX - rect.left) / rect.width;
+				if (fx < 0.34) startSlide(-1); else if (fx > 0.66) startSlide(1);
+			} else if (_tapMi >= 0) {                          // 一覧→単体 / 分類→中央は単体・隣グループは切替
+				if (viewMode === "grid") goSingle(_tapMi);
+				else if (viewMode === "group") (catOf(_tapMi) === groupCat) ? goSingle(_tapMi) : goGroup(catOf(_tapMi));
+			}
+		}
+	}
+	_downXY = null; _tapMi = -1; _movedFar = false;
+	pointers.delete(e.pointerId);
+	pinchDist = 0;
+	gizmoAxis = null;
+	if (pointers.size === 1) {
+		const p = [...pointers.values()][0];
+		dragging = true; lastX = p[0]; lastY = p[1];
+	} else if (pointers.size === 0) {
+		dragging = false;
+		cv.style.cursor = (editMode && viewMode === "scene") ? "default" : "grab";
+	}
+}
+cv.addEventListener("pointerup", _endPointer);
+cv.addEventListener("pointercancel", _endPointer);
+cv.addEventListener("wheel", e => { e.preventDefault(); zoom = Math.max(0.3, Math.min(4, zoom * (e.deltaY > 0 ? 0.92 : 1.08))); }, { passive: false });
+cv.addEventListener("dblclick", () => { yaw = 0.65; pitch = 0.42; zoom = 1; spin = 0; spinX = 0; });
+document.getElementById("reset").onclick = () => { yaw = 0.65; pitch = 0.42; zoom = 1; spin = 0; spinX = 0; };
+document.getElementById("reload").onclick = () => load(true);
+document.getElementById("plate").onchange = updateStats;
+// 大2択: 🖼 CG ⇄ 🏯 店内
+document.querySelectorAll("#mode-switch button").forEach(b => b.onclick = () => setWorkspace(b.dataset.ws));
+// 単体表示の 前/次 (◀▶ ボタン + ←→ キー)
+chk("nav-prev").onclick = () => startSlide(-1);
+chk("nav-next").onclick = () => startSlide(1);
+chk("nav-back").onclick = () => goGrid();
+window.addEventListener("keydown", e => {
+	if (viewMode !== "single" || editMode) return;
+	if (document.activeElement && document.activeElement.tagName === "INPUT") return;
+	if (e.key === "ArrowLeft") { e.preventDefault(); startSlide(-1); }
+	else if (e.key === "ArrowRight") { e.preventDefault(); startSlide(1); }
+});
+// undo/redo ショートカット (店内編集中・テキスト入力中以外)
+window.addEventListener("keydown", e => {
+	if (!editMode) return;
+	if (document.activeElement && document.activeElement.tagName === "INPUT") return;
+	if (!(e.metaKey || e.ctrlKey)) return;
+	const k = e.key.toLowerCase();
+	if (k === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); }
+	else if (k === "y") { e.preventDefault(); redo(); }
+});
+
+// BGM: ゲームと同じ main_loop.wav (45.7s シームレスループ) をトグル再生。
+// スマホは自動再生不可のため、チェック (ユーザー操作) を起点に play する。
+let _bgm = null;
+document.getElementById("bgm").onchange = e => {
+	if (e.target.checked) {
+		if (!_bgm) {
+			_bgm = new Audio("bgm.wav");
+			_bgm.loop = true;
+			_bgm.volume = 0.6;
+		}
+		_bgm.play().catch(err => { stats.textContent = "BGM 再生失敗: " + err.message; });
+	} else if (_bgm) {
+		_bgm.pause();
+	}
+};
+if (!VIEW_ONLY) setInterval(() => { if (chk("watch").checked) load(true); }, 2000);
+
+// 静的公開ビルド: 開発専用 UI だけ隠す (CG⇄店内 の切替・CG閲覧は公開版でも見せる)。
+if (VIEW_ONLY) {
+	document.title = "押忍！お寿司王 — プレビュー";
+	const titleEl = document.querySelector(".tb-title");
+	if (titleEl) titleEl.textContent = "押忍！お寿司王";
+	for (const id of ["reload", "chip-watch"]) show(id, false);   // 再読込・監視のみ非表示
+}
+
+load(false).then(loop);
+</script>
+</body>
+</html>

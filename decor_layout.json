@@ -1,0 +1,46 @@
+{
+  "loop": [
+    { "key": "manaita", "x": 0.3, "y": 0.02, "z": 0.31, "size": 0.29, "rot": 0, "hang": false },
+    { "key": "sushi_oke", "x": -0.3, "y": 0.02, "z": 0.31, "size": 0.2, "rot": 0, "hang": false },
+    { "key": "owan", "x": -0.55, "y": 0, "z": 1.8, "size": 0.13, "rot": 0, "hang": false },
+    { "key": "hashi", "x": -0.32, "y": 0, "z": 1.84, "size": 0.28, "rot": 20, "hang": false },
+    { "key": "owan", "x": 0.6, "y": 0, "z": 1.8, "size": 0.13, "rot": 0, "hang": false },
+    { "key": "hashi", "x": 0.83, "y": 0, "z": 1.84, "size": 0.28, "rot": -14, "hang": false },
+    { "key": "geta", "x": 0.05, "y": 0, "z": -1.8, "size": 0.3, "rot": 6, "hang": false },
+    { "key": "manekineko", "x": -1.25, "y": 0.4, "z": 1.1, "size": 0.32, "rot": 0, "hang": false },
+    { "key": "sushi_oke", "x": 1.25, "y": 0.4, "z": 1.1, "size": 0.26, "rot": 23, "hang": false },
+
+    { "key": "chochin", "x": -3.2, "y": 1.55, "z": 2.6, "size": 0.5, "rot": 0, "hang": true },
+    { "key": "chochin", "x": 3.2, "y": 1.55, "z": 2.6, "size": 0.5, "rot": 0, "hang": true },
+
+    { "key": "wall_clock", "x": -8.3, "y": 1.3, "z": 1.6, "size": 0.65, "rot": 90, "hang": false },
+    { "key": "kifuda_menu", "x": -8.3, "y": 1.0, "z": 3.6, "size": 0.85, "rot": 90, "hang": false },
+    { "key": "sensu", "x": -8.3, "y": 1.6, "z": 0.8, "size": 0.8, "rot": 90, "hang": false },
+    { "key": "tairyobata", "x": 8.3, "y": 0.8, "z": 1.4, "size": 1.4, "rot": -90, "hang": false },
+    { "key": "kamidana", "x": 8.3, "y": 1.55, "z": 4.0, "size": 0.95, "rot": -90, "hang": false },
+
+    { "key": "getabako", "x": 5.4, "y": -0.4, "z": 5.4, "size": 1.0, "rot": 0, "hang": false },
+    { "key": "komodaru", "x": -5.4, "y": -0.4, "z": 5.4, "size": 0.65, "rot": 0, "hang": false },
+    { "key": "gacha", "x": -7.4, "y": -0.4, "z": 5.0, "size": 1.05, "rot": 20, "hang": false },
+    { "key": "andon", "x": 7.4, "y": -0.4, "z": 5.0, "size": 1.0, "rot": -25, "hang": false },
+    { "key": "bonsai", "x": -7.8, "y": -0.4, "z": 3.2, "size": 0.55, "rot": 0, "hang": false },
+    { "key": "kasatate", "x": 7.8, "y": -0.4, "z": 2.6, "size": 0.7, "rot": 0, "hang": false }
+  ],
+  "serp": [
+    { "key": "chochin", "x": -3.2, "y": 1.55, "z": 2.6, "size": 0.5, "rot": 0, "hang": true },
+    { "key": "chochin", "x": 3.2, "y": 1.55, "z": 2.6, "size": 0.5, "rot": 0, "hang": true },
+
+    { "key": "wall_clock", "x": -8.3, "y": 1.3, "z": 1.6, "size": 0.65, "rot": 90, "hang": false },
+    { "key": "kifuda_menu", "x": -8.3, "y": 1.0, "z": 3.6, "size": 0.85, "rot": 90, "hang": false },
+    { "key": "sensu", "x": -8.3, "y": 1.6, "z": 0.8, "size": 0.8, "rot": 90, "hang": false },
+    { "key": "tairyobata", "x": 8.3, "y": 0.8, "z": 1.4, "size": 1.4, "rot": -90, "hang": false },
+    { "key": "kamidana", "x": 8.3, "y": 1.55, "z": 4.0, "size": 0.95, "rot": -90, "hang": false },
+
+    { "key": "getabako", "x": 5.4, "y": -0.4, "z": 5.4, "size": 1.0, "rot": 0, "hang": false },
+    { "key": "komodaru", "x": -5.4, "y": -0.4, "z": 5.4, "size": 0.65, "rot": 0, "hang": false },
+    { "key": "gacha", "x": -7.4, "y": -0.4, "z": 5.0, "size": 1.05, "rot": 20, "hang": false },
+    { "key": "andon", "x": 7.4, "y": -0.4, "z": 5.0, "size": 1.0, "rot": -25, "hang": false },
+    { "key": "bonsai", "x": -7.8, "y": -0.4, "z": 3.2, "size": 0.55, "rot": 0, "hang": false },
+    { "key": "kasatate", "x": 7.8, "y": -0.4, "z": 2.6, "size": 0.7, "rot": 0, "hang": false }
+  ]
+}
